@@ -48,9 +48,7 @@ func LoadConfig() (*Config, error) {
 
 	k := koanf.New(".")
 
-	err := k.Load(env.Provider("PAYMENTS_", ".", func(s string) string {
-		return strings.ToLower(strings.TrimPrefix(s, "PAYMENTS_"))
-	}), nil)
+	err := k.Load(env.Provider("PAYMENTS_", ".", envKeyTransform), nil)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("could not load initial env variables")
 	}
@@ -84,4 +82,33 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return mainConfig, nil
+}
+
+func envKeyTransform(raw string) string {
+	key := strings.ToLower(strings.TrimPrefix(raw, "PAYMENTS_"))
+
+	for _, root := range []string{"primary", "server", "database"} {
+		prefix := root + "_"
+		if strings.HasPrefix(key, prefix) {
+			return root + "." + strings.TrimPrefix(key, prefix)
+		}
+	}
+
+	if strings.HasPrefix(key, "observability_") {
+		rest := strings.TrimPrefix(key, "observability_")
+		switch {
+		case strings.HasPrefix(rest, "new_relic_"):
+			suffix := strings.TrimPrefix(rest, "new_relic_")
+			return "observability.new_relic." + strings.ReplaceAll(suffix, "_", ".")
+		case strings.HasPrefix(rest, "health_checks_"):
+			suffix := strings.TrimPrefix(rest, "health_checks_")
+			return "observability.health_checks." + strings.ReplaceAll(suffix, "_", ".")
+		case strings.HasPrefix(rest, "logging_"):
+			return "observability.logging." + strings.TrimPrefix(rest, "logging_")
+		default:
+			return "observability." + strings.ReplaceAll(rest, "_", ".")
+		}
+	}
+
+	return strings.ReplaceAll(key, "_", ".")
 }

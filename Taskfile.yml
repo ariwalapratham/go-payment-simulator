@@ -75,7 +75,7 @@ tasks:
   test:integration:
     desc: Run DB/integration tests (requires Postgres)
     cmds:
-      - go test -race -tags=integration ./test/integration/...
+      - go test -race -tags=integration ./tests/integration/...
 
   test:one:
     desc: 'Run a single test: task test:one TEST=TestX PKG=./internal/service'

@@ -148,9 +148,8 @@ func extractColumnForUniqueViolation(constraintName string) string {
 	return ""
 }
 
-// HandleError processes a database error into an appropriate application error
+// HandleError maps Postgres/pgx errors to *errs.HTTPError; domain errors should bypass this.
 func HandleError(err error) error {
-	// If it's already a custom HTTP error, just return it
 	var httpErr *errs.HTTPError
 	if errors.As(err, &httpErr) {
 		return err

@@ -66,3 +66,30 @@ func NewInternalServerError() *HTTPError {
 func ValidationError(err error) *HTTPError {
 	return NewBadRequestError("Validation failed: "+err.Error(), false, nil, nil, nil)
 }
+
+func NewConflictError(code, message string) *HTTPError {
+	return &HTTPError{
+		Code:     code,
+		Message:  message,
+		Status:   http.StatusConflict,
+		Override: true,
+	}
+}
+
+func NewUnprocessableEntityError(code, message string) *HTTPError {
+	return &HTTPError{
+		Code:     code,
+		Message:  message,
+		Status:   http.StatusUnprocessableEntity,
+		Override: true,
+	}
+}
+
+func NewNotImplementedError() *HTTPError {
+	return &HTTPError{
+		Code:     "not_implemented",
+		Message:  http.StatusText(http.StatusNotImplemented),
+		Status:   http.StatusNotImplemented,
+		Override: true,
+	}
+}
