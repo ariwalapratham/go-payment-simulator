@@ -68,9 +68,9 @@ tasks:
       - go test -race ./...
 
   test:unit:
-    desc: Run unit tests only (no DB/HTTP)
+    desc: Run unit tests only (tests/unit, no integration tag)
     cmds:
-      - go test -race ./internal/...
+      - go test -race ./tests/unit/...
 
   test:integration:
     desc: Run DB/integration tests (requires Postgres)
@@ -78,9 +78,9 @@ tasks:
       - go test -race -tags=integration ./tests/integration/...
 
   test:one:
-    desc: 'Run a single test: task test:one TEST=TestX PKG=./internal/service'
+    desc: 'Run a single test: task test:one TEST=TestX PKG=./tests/unit/model'
     vars:
-      PKG: '{{.PKG | default "./..."}}'
+      PKG: '{{.PKG | default "./tests/unit/..."}}'
     cmds:
       - go test -race -run {{.TEST}} {{.PKG}}
 

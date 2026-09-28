@@ -37,7 +37,6 @@ docs/
 
 # Local opencode config / personal agents+skills (global skills live in ~/.config/opencode)
 .opencode/
-AGENTS.md
 
 # Compiled binaries
 /bin/
