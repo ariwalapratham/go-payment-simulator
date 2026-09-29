@@ -53,8 +53,10 @@ func (mt *multiTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data p
 
 const DatabasePingTimeout = 10
 
-// dsnFromConfig builds the postgres connection string shared by the
-// connection pool and the migration runner.
+func DSN(cfg *config.Config) string {
+	return dsnFromConfig(cfg)
+}
+
 func dsnFromConfig(cfg *config.Config) string {
 	hostPort := net.JoinHostPort(cfg.Database.Host, strconv.Itoa(cfg.Database.Port))
 

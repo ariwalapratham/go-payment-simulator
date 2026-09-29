@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(s *server.Server, mw *middleware.Middlewares) *gin.Engine {
+func NewRouter(s *server.Server, mw *middleware.Middlewares, payments *PaymentHandler) *gin.Engine {
 	if s.Config.Primary.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -25,7 +25,7 @@ func NewRouter(s *server.Server, mw *middleware.Middlewares) *gin.Engine {
 
 	v1 := r.Group("/v1")
 	v1.GET("/health", health)
-	registerPaymentRoutes(v1)
+	registerPaymentRoutes(v1, mw, payments)
 	registerRefundRoutes(v1)
 
 	return r

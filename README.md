@@ -22,6 +22,16 @@ Postgres only runs in Compose. The API runs on the host (`:8080`).
 curl localhost:8080/v1/health
 ```
 
+Create a payment (seed merchant from migration `000002`):
+
+```bash
+curl -sS -X POST localhost:8080/v1/payments \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-1' \
+  -H 'X-Merchant-Id: 11111111-1111-1111-1111-111111111111' \
+  -d '{"amount":5000,"currency":"USD"}'
+```
+
 Optional: apply migrations with the CLI instead of startup (`migrate` must be installed):
 
 ```bash

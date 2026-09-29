@@ -1,6 +1,11 @@
 package model
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrInvalidTransition = errors.New("invalid state transition")
 
 type PaymentStatus string
 
@@ -38,6 +43,9 @@ var AllowedPaymentTransitions = map[PaymentStatus][]PaymentStatus{
 	PaymentStatusPending:    {PaymentStatusAuthorized, PaymentStatusFailed, PaymentStatusCancelled},
 	PaymentStatusAuthorized: {PaymentStatusCaptured, PaymentStatusCancelled},
 	PaymentStatusCaptured:   {PaymentStatusRefunded},
+	PaymentStatusFailed:     {},
+	PaymentStatusCancelled:  {},
+	PaymentStatusRefunded:   {},
 }
 
 func (s PaymentStatus) CanTransitionTo(next PaymentStatus) bool {
@@ -47,6 +55,13 @@ func (s PaymentStatus) CanTransitionTo(next PaymentStatus) bool {
 		}
 	}
 	return false
+}
+
+func Transition(current, next PaymentStatus) error {
+	if !current.CanTransitionTo(next) {
+		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, current, next)
+	}
+	return nil
 }
 
 type RefundStatus string

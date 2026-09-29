@@ -1,5 +1,7 @@
 package model
 
+const SeedMerchantPublicID = "11111111-1111-1111-1111-111111111111"
+
 const (
 	TableMerchants         = "merchants"
 	TablePayments          = "payments"

@@ -14,7 +14,9 @@ import (
 	"github.com/ariwalapratham/go-payment-simulator/internal/handler"
 	"github.com/ariwalapratham/go-payment-simulator/internal/logger"
 	"github.com/ariwalapratham/go-payment-simulator/internal/middleware"
+	"github.com/ariwalapratham/go-payment-simulator/internal/repository"
 	"github.com/ariwalapratham/go-payment-simulator/internal/server"
+	"github.com/ariwalapratham/go-payment-simulator/internal/service"
 )
 
 func main() {
@@ -38,7 +40,8 @@ func main() {
 	}
 
 	mw := middleware.NewMiddlewares(srv)
-	router := handler.NewRouter(srv, mw)
+	payments := handler.NewPaymentHandler(service.NewPaymentService(repository.NewPaymentRepository(srv.DB.Pool)), srv.Logger)
+	router := handler.NewRouter(srv, mw, payments)
 	srv.SetupHTTPServer(router)
 
 	go func() {

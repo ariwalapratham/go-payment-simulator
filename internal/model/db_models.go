@@ -46,7 +46,8 @@ type DBIdempotencyKey struct {
 	ID             int64     `db:"id"`
 	MerchantID     int64     `db:"merchant_id"`
 	IdempotencyKey string    `db:"idempotency_key"`
-	PaymentID      int64     `db:"payment_id"`
+	PaymentID      *int64    `db:"payment_id"`
+	RequestHash    string    `db:"request_hash"`
 	CreatedAt      time.Time `db:"created_at"`
 }
 

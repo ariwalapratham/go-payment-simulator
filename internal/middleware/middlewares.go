@@ -8,12 +8,14 @@ import (
 )
 
 type Middlewares struct {
-	RequestID gin.HandlerFunc
-	Tracing   *TracingMiddleware
-	Recovery  gin.HandlerFunc
-	Logger    gin.HandlerFunc
-	Errors    gin.HandlerFunc
-	RateLimit *RateLimitMiddleware
+	RequestID      gin.HandlerFunc
+	Tracing        *TracingMiddleware
+	Recovery       gin.HandlerFunc
+	Logger         gin.HandlerFunc
+	Errors         gin.HandlerFunc
+	MerchantID     gin.HandlerFunc
+	IdempotencyKey gin.HandlerFunc
+	RateLimit      *RateLimitMiddleware
 }
 
 func NewMiddlewares(s *server.Server) *Middlewares {
@@ -23,11 +25,13 @@ func NewMiddlewares(s *server.Server) *Middlewares {
 	}
 
 	return &Middlewares{
-		RequestID: RequestID(),
-		Tracing:   NewTracingMiddleware(s, nrApp),
-		Recovery:  Recovery(s.Logger),
-		Logger:    Logger(s.Logger),
-		Errors:    ErrorHandler(),
-		RateLimit: NewRateLimitMiddleware(s),
+		RequestID:      RequestID(),
+		Tracing:        NewTracingMiddleware(s, nrApp),
+		Recovery:       Recovery(s.Logger),
+		Logger:         Logger(s.Logger),
+		Errors:         ErrorHandler(),
+		MerchantID:     RequireMerchantID(),
+		IdempotencyKey: RequireIdempotencyKey(),
+		RateLimit:      NewRateLimitMiddleware(s),
 	}
 }
