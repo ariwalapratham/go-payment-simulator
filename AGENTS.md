@@ -4,15 +4,15 @@
 Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`, `docs/api-db-design-payment-simulator.md`, and `docs/db-latest-design.md`.
 
 ## Phase
-**State machine + idempotency (ARD days 3–4)** — POST/GET payments; capture/cancel/refund HTTP still 501.
+**Fake bank port (ARD days 5–7, bank slice)** — `internal/bank` Gateway + simulator; workers still not started.
 
 ## Package map (actual vs doc)
 - HTTP: `internal/handler` + `internal/middleware` (doc: `internal/http`)
 - Shared DB shapes + enums: `internal/model` — `DB*` rows in `db_models.go`, API DTOs in `service_*.go`, enums + `Transition` in `enum.go`
 - Domain/services: `internal/service` (doc: `internal/payment`, `internal/refund`, `internal/idempotency`)
 - Data: `internal/repository` (doc: sqlc/sqlx TBD)
-- Workers: `internal/worker` (payment + webhook)
-- Bank: **not created** (doc: `internal/bank`)
+- Workers: `internal/worker` (payment + webhook) — packages exist, not started
+- Bank: `internal/bank` (`Gateway` + in-process `Simulator`; `bank.NewGateway`)
 - DB/migrate: `internal/database`, `migrations/` (embedded SQL)
 
 ## Done
@@ -33,12 +33,13 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] Payment status machine (`model.Transition`)
 - [x] POST/GET `/v1/payments` with DB idempotency + request hash
 - [x] Integration concurrency tests for idempotent create
+- [x] Fake bank port (`bank.Gateway`, simulator, `PAYMENTS_BANK_*` config)
 
 ## In progress
 - (none)
 
 ## Explicitly deferred (do not implement yet)
-- Fake bank, workers, webhooks, prometheus metrics
+- Payment/webhook workers, retries/backoff, prometheus metrics
 - Capture, cancel, refund HTTP (still 501)
 - API-key auth (`api_key_hash` unused)
 

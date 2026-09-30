@@ -15,6 +15,7 @@ type Config struct {
 	Primary       Primary              `koanf:"primary" validate:"required"`
 	Server        ServerConfig         `koanf:"server" validate:"required"`
 	Database      DatabaseConfig       `koanf:"database" validate:"required"`
+	Bank          BankConfig           `koanf:"bank"`
 	Observability *ObservabilityConfig `koanf:"observability"`
 }
 
@@ -81,6 +82,11 @@ func LoadConfig() (*Config, error) {
 		logger.Fatal().Err(err).Msg("invalid observability config")
 	}
 
+	mainConfig.Bank.applyDefaults()
+	if err := mainConfig.Bank.Validate(); err != nil {
+		logger.Fatal().Err(err).Msg("invalid bank config")
+	}
+
 	return mainConfig, nil
 }
 
@@ -92,6 +98,14 @@ func envKeyTransform(raw string) string {
 		if strings.HasPrefix(key, prefix) {
 			return root + "." + strings.TrimPrefix(key, prefix)
 		}
+	}
+
+	if strings.HasPrefix(key, "bank_") {
+		rest := strings.TrimPrefix(key, "bank_")
+		if strings.HasPrefix(rest, "simulator_") {
+			return "bank.simulator." + strings.TrimPrefix(rest, "simulator_")
+		}
+		return "bank." + rest
 	}
 
 	if strings.HasPrefix(key, "observability_") {
