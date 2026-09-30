@@ -23,6 +23,7 @@ type PaymentHandler struct {
 	log      zerolog.Logger
 }
 
+// NewPaymentHandler wires POST/GET /v1/payments.
 func NewPaymentHandler(payments *service.PaymentService, log *zerolog.Logger) *PaymentHandler {
 	h := &PaymentHandler{payments: payments, log: zerolog.Nop()}
 	if log != nil {
@@ -31,6 +32,7 @@ func NewPaymentHandler(payments *service.PaymentService, log *zerolog.Logger) *P
 	return h
 }
 
+// Create handles POST /v1/payments. 201 on first insert, 200 on idempotent replay.
 func (h *PaymentHandler) Create(c *gin.Context) {
 	log := h.reqLog(c)
 	merchantID := middleware.MerchantIDFrom(c)
@@ -84,6 +86,7 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 	c.JSON(status, resp)
 }
 
+// Get handles GET /v1/payments/:id for the merchant in X-Merchant-Id.
 func (h *PaymentHandler) Get(c *gin.Context) {
 	log := h.reqLog(c)
 	merchantID := middleware.MerchantIDFrom(c)
@@ -123,6 +126,7 @@ func (h *PaymentHandler) reqLog(c *gin.Context) zerolog.Logger {
 	return h.log.With().Str("request_id", middleware.GetRequestID(c)).Logger()
 }
 
+// registerPaymentRoutes mounts POST/GET /v1/payments; capture/cancel/refund stay 501.
 func registerPaymentRoutes(rg *gin.RouterGroup, mw *middleware.Middlewares, h *PaymentHandler) {
 	if h == nil {
 		h = NewPaymentHandler(nil, nil)
@@ -136,6 +140,7 @@ func registerPaymentRoutes(rg *gin.RouterGroup, mw *middleware.Middlewares, h *P
 	g.POST("/:id/refund", notImplemented)
 }
 
+// validateCreateRequest checks amount > 0 and a 3-letter currency.
 func validateCreateRequest(req model.CreatePaymentRequest) error {
 	if req.Amount <= 0 {
 		return errs.NewBadRequestError("amount must be greater than 0", true, nil, nil, nil)
@@ -162,6 +167,7 @@ func toPaymentResponse(p service.Payment) model.PaymentResponse {
 	)
 }
 
+// httpPaymentErr maps service sentinels to the API error envelope (404/422/409).
 func httpPaymentErr(err error) error {
 	switch {
 	case errors.Is(err, service.ErrMerchantNotFound):
@@ -180,6 +186,7 @@ func httpPaymentErr(err error) error {
 	}
 }
 
+// notImplemented is 501 for POST /v1/payments/:id/{capture,cancel,refund} and GET /v1/refunds/:id.
 func notImplemented(c *gin.Context) {
 	middleware.AbortWithError(c, errs.NewNotImplementedError())
 }

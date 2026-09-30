@@ -36,10 +36,13 @@ type PaymentService struct {
 	payments paymentRepository
 }
 
+// NewPaymentService orchestrates create/get; no HTTP types.
 func NewPaymentService(payments paymentRepository) *PaymentService {
 	return &PaymentService{payments: payments}
 }
 
+// Create inserts a PENDING payment or returns the existing one for the same idempotency key.
+// created is false on replay.
 func (s *PaymentService) Create(
 	ctx context.Context,
 	merchantPublicID uuid.UUID,
@@ -61,6 +64,7 @@ func (s *PaymentService) Create(
 	return toPayment(rec), created, nil
 }
 
+// Get loads a payment by public id, scoped to the merchant.
 func (s *PaymentService) Get(
 	ctx context.Context,
 	merchantPublicID, paymentPublicID uuid.UUID,
@@ -85,6 +89,7 @@ func toPayment(rec *repository.PaymentRecord) Payment {
 	}
 }
 
+// mapRepoErr keeps HTTP mapping in the handler; service only uses domain sentinels.
 func mapRepoErr(err error) error {
 	switch {
 	case errors.Is(err, repository.ErrMerchantNotFound):

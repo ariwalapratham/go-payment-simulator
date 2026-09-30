@@ -44,10 +44,12 @@ type PaymentRepository struct {
 	pool *pgxpool.Pool
 }
 
+// NewPaymentRepository is the payments + idempotency SQL layer.
 func NewPaymentRepository(pool *pgxpool.Pool) *PaymentRepository {
 	return &PaymentRepository{pool: pool}
 }
 
+// MerchantByPublicID loads a merchant by API-facing UUID.
 func (r *PaymentRepository) MerchantByPublicID(ctx context.Context, publicID uuid.UUID) (*model.DBMerchant, error) {
 	const q = `
 SELECT id, public_id, name, api_key_hash, created_at
@@ -65,6 +67,7 @@ WHERE public_id = $1`
 	return m, nil
 }
 
+// GetPaymentByPublicID loads a payment only if it belongs to the merchant.
 func (r *PaymentRepository) GetPaymentByPublicID(
 	ctx context.Context,
 	merchantPublicID, paymentPublicID uuid.UUID,
@@ -88,6 +91,7 @@ WHERE p.public_id = $1 AND m.public_id = $2`
 	return rec, nil
 }
 
+// CreatePaymentIdempotent inserts once per (merchant, key). Concurrent losers retry then replay.
 func (r *PaymentRepository) CreatePaymentIdempotent(
 	ctx context.Context,
 	in CreatePaymentInput,
@@ -107,6 +111,7 @@ func (r *PaymentRepository) CreatePaymentIdempotent(
 	return nil, false, fmt.Errorf("idempotent create: %w", last)
 }
 
+// createPaymentOnce is one txn: claim key → insert PENDING, or lock existing claim and replay.
 func (r *PaymentRepository) createPaymentOnce(
 	ctx context.Context,
 	in CreatePaymentInput,
@@ -151,6 +156,7 @@ func (r *PaymentRepository) createPaymentOnce(
 	return &PaymentRecord{Payment: *payment, MerchantPublicID: merchant.PublicID}, false, nil
 }
 
+// merchantByPublicIDTx is the same lookup inside an open txn.
 func merchantByPublicIDTx(ctx context.Context, tx pgx.Tx, publicID uuid.UUID) (*model.DBMerchant, error) {
 	const q = `
 SELECT id, public_id, name, api_key_hash, created_at
@@ -167,6 +173,7 @@ WHERE public_id = $1`
 	return m, nil
 }
 
+// claimIdempotency INSERT … ON CONFLICT DO NOTHING. won=true if this txn created the row.
 func claimIdempotency(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -189,6 +196,7 @@ RETURNING id, merchant_id, idempotency_key, payment_id, request_hash, created_at
 	return model.DBIdempotencyKey{}, false, fmt.Errorf("claim idempotency key: %w", err)
 }
 
+// insertPendingPayment creates the payment row in PENDING (bank capture comes later).
 func insertPendingPayment(ctx context.Context, tx pgx.Tx, merchantID, amount int64, currency string) (*model.DBPayment, error) {
 	const q = `
 INSERT INTO payments (merchant_id, amount, currency, status)
@@ -203,6 +211,7 @@ RETURNING id, public_id, merchant_id, amount, currency, status,
 	return p, nil
 }
 
+// attachPaymentToClaim links the new payment so concurrent losers can replay it.
 func attachPaymentToClaim(ctx context.Context, tx pgx.Tx, claimID, paymentID int64) error {
 	const q = `UPDATE idempotency_keys SET payment_id = $1 WHERE id = $2`
 	_, err := tx.Exec(ctx, q, paymentID, claimID)
@@ -212,6 +221,7 @@ func attachPaymentToClaim(ctx context.Context, tx pgx.Tx, claimID, paymentID int
 	return nil
 }
 
+// paymentFromExistingClaim FOR UPDATE waits until payment_id is set; mismatch → ErrIdempotencyKeyReused.
 func paymentFromExistingClaim(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -245,6 +255,7 @@ FOR UPDATE`
 	return payment, nil
 }
 
+// paymentByID loads by bigint PK; missing row means the winner has not committed yet.
 func paymentByID(ctx context.Context, tx pgx.Tx, id int64) (*model.DBPayment, error) {
 	const q = `
 SELECT id, public_id, merchant_id, amount, currency, status,

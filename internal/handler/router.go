@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// NewRouter mounts /v1 routes and the shared middleware chain.
 func NewRouter(s *server.Server, mw *middleware.Middlewares, payments *PaymentHandler) *gin.Engine {
 	if s.Config.Primary.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -31,6 +32,7 @@ func NewRouter(s *server.Server, mw *middleware.Middlewares, payments *PaymentHa
 	return r
 }
 
+// health is GET /v1/health.
 func health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

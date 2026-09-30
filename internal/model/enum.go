@@ -57,6 +57,7 @@ func (s PaymentStatus) CanTransitionTo(next PaymentStatus) bool {
 	return false
 }
 
+// Transition is the payment status machine; invalid edges return ErrInvalidTransition.
 func Transition(current, next PaymentStatus) error {
 	if !current.CanTransitionTo(next) {
 		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, current, next)
