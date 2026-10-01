@@ -60,14 +60,30 @@ func (s *Server) Start() error {
 	return s.httpServer.ListenAndServe()
 }
 
-func (s *Server) Shutdown(ctx context.Context) error {
+func (s *Server) ShutdownHTTP(ctx context.Context) error {
+	if s.httpServer == nil {
+		return nil
+	}
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		return fmt.Errorf("failed to shutdown HTTP server: %w", err)
 	}
+	return nil
+}
 
+func (s *Server) CloseDB() error {
+	if s.DB == nil {
+		return nil
+	}
 	if err := s.DB.Close(); err != nil {
 		return fmt.Errorf("failed to close database connection: %w", err)
 	}
-
 	return nil
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	err := s.ShutdownHTTP(ctx)
+	if dbErr := s.CloseDB(); dbErr != nil {
+		return errors.Join(err, dbErr)
+	}
+	return err
 }

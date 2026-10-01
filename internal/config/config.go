@@ -16,6 +16,7 @@ type Config struct {
 	Server        ServerConfig         `koanf:"server" validate:"required"`
 	Database      DatabaseConfig       `koanf:"database" validate:"required"`
 	Bank          BankConfig           `koanf:"bank"`
+	Worker        WorkerConfig         `koanf:"worker"`
 	Observability *ObservabilityConfig `koanf:"observability"`
 }
 
@@ -87,6 +88,14 @@ func LoadConfig() (*Config, error) {
 		logger.Fatal().Err(err).Msg("invalid bank config")
 	}
 
+	mainConfig.Worker.applyDefaults(mainConfig.Bank.CallTimeout)
+	if err := mainConfig.Worker.Validate(); err != nil {
+		logger.Fatal().Err(err).Msg("invalid worker config")
+	}
+	if err := mainConfig.Worker.ValidateLease(mainConfig.Bank.CallTimeout); err != nil {
+		logger.Fatal().Err(err).Msg("invalid worker config")
+	}
+
 	return mainConfig, nil
 }
 
@@ -106,6 +115,10 @@ func envKeyTransform(raw string) string {
 			return "bank.simulator." + strings.TrimPrefix(rest, "simulator_")
 		}
 		return "bank." + rest
+	}
+
+	if strings.HasPrefix(key, "worker_") {
+		return "worker." + strings.TrimPrefix(key, "worker_")
 	}
 
 	if strings.HasPrefix(key, "observability_") {

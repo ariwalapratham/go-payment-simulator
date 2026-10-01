@@ -4,14 +4,14 @@
 Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`, `docs/api-db-design-payment-simulator.md`, and `docs/db-latest-design.md`.
 
 ## Phase
-**Fake bank port (ARD days 5–7, bank slice)** — `internal/bank` Gateway + simulator; workers still not started.
+**Fake bank + authorize worker (ARD days 5–7)** — DB-queue payment worker; capture/cancel/refund HTTP still 501.
 
 ## Package map (actual vs doc)
 - HTTP: `internal/handler` + `internal/middleware` (doc: `internal/http`)
 - Shared DB shapes + enums: `internal/model` — `DB*` rows in `db_models.go`, API DTOs in `service_*.go`, enums + `Transition` in `enum.go`
 - Domain/services: `internal/service` (doc: `internal/payment`, `internal/refund`, `internal/idempotency`)
 - Data: `internal/repository` (doc: sqlc/sqlx TBD)
-- Workers: `internal/worker` (payment + webhook) — packages exist, not started
+- Workers: `internal/worker` (payment pool started; webhook not started)
 - Bank: `internal/bank` (`Gateway` + in-process `Simulator`; `bank.NewGateway`)
 - DB/migrate: `internal/database`, `migrations/` (embedded SQL)
 
@@ -34,12 +34,13 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] POST/GET `/v1/payments` with DB idempotency + request hash
 - [x] Integration concurrency tests for idempotent create
 - [x] Fake bank port (`bank.Gateway`, simulator, `PAYMENTS_BANK_*` config)
+- [x] Authorize worker pool (DB queue, `SKIP LOCKED` lease, retries/backoff)
 
 ## In progress
 - (none)
 
 ## Explicitly deferred (do not implement yet)
-- Payment/webhook workers, retries/backoff, prometheus metrics
+- Webhook workers, prometheus metrics
 - Capture, cancel, refund HTTP (still 501)
 - API-key auth (`api_key_hash` unused)
 
@@ -63,6 +64,7 @@ Client → Router → Middleware → Handler → Service → Repository → DB.
 - **Service:** orchestration, hashing, state rules. No Gin, no HTTP DTOs, no `*errs.HTTPError`.
 - **Repository:** SQL / transactions. No HTTP types.
 - **Model:** `DB*` rows in `db_models.go`; API request/response in `service_*.go`; enums + `Transition` in `enum.go`.
+- **Worker:** polls `PENDING` rows (`SKIP LOCKED` lease); calls `bank.Gateway`; applies retry policy. No HTTP.
 - Wire dependencies in `cmd/api/main.go` (composition root), not inside handlers.
 
 ## Migrations
