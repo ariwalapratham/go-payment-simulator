@@ -3,15 +3,17 @@ version: "2"
 run:
   timeout: 3m
 
+formatters:
+  enable:
+    - goimports
+
 linters:
   default: none
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
-    - typecheck
     - unused
     - asasalint
     - asciicheck
@@ -36,9 +38,8 @@ linters:
     - goconst
     - gocritic
     - gocyclo
-    - goimports
     - gomoddirectives
-    - gomodguard
+    - gomodguard_v2
     - goprintffuncname
     - gosec
     - iface
@@ -68,8 +69,6 @@ linters:
     - sloglint
     - spancheck
     - sqlclosecheck
-    - stylecheck
-
     - testableexamples
     - testifylint
     - testpackage
