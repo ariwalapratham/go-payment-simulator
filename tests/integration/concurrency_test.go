@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+
+	"github.com/ariwalapratham/go-payment-simulator/internal/model"
 )
 
 func TestCreatePayment_ConcurrentSameKey(t *testing.T) {
@@ -56,5 +58,44 @@ func TestCreatePayment_ConcurrentSameKey(t *testing.T) {
 		if id != winner {
 			t.Fatalf("mixed ids: %s vs %s", winner, id)
 		}
+	}
+}
+
+func TestCapture_ConcurrentOnce(t *testing.T) {
+	resetDB(t)
+	r := testRouter(t)
+	id := createPayment(t, r)
+	forcePaymentStatus(t, id, model.PaymentStatusAuthorized)
+	const n = 20
+
+	codes := make([]int, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			rec := postPaymentAction(t, r, seedMerchantID(), id, "capture")
+			codes[i] = rec.Code
+		}(i)
+	}
+	wg.Wait()
+
+	ok, conflict := 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusOK:
+			ok++
+		case http.StatusConflict:
+			conflict++
+		default:
+			t.Fatalf("unexpected status %d", c)
+		}
+	}
+	if ok != 1 || conflict != n-1 {
+		t.Fatalf("ok=%d conflict=%d want 1/%d", ok, conflict, n-1)
+	}
+	got := getPayment(t, r, seedMerchantID(), id)
+	if decodePayment(t, got)["status"] != "CAPTURED" {
+		t.Fatalf("status %v", decodePayment(t, got)["status"])
 	}
 }

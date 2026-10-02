@@ -30,13 +30,14 @@ type Payment struct {
 type paymentRepository interface {
 	CreatePaymentIdempotent(context.Context, repository.CreatePaymentInput) (*repository.PaymentRecord, bool, error)
 	GetPaymentByPublicID(context.Context, uuid.UUID, uuid.UUID) (*repository.PaymentRecord, error)
+	TransitionPayment(context.Context, uuid.UUID, uuid.UUID, model.PaymentStatus) (*repository.PaymentRecord, error)
 }
 
 type PaymentService struct {
 	payments paymentRepository
 }
 
-// NewPaymentService orchestrates create/get; no HTTP types.
+// NewPaymentService orchestrates create/get/capture/cancel; no HTTP types.
 func NewPaymentService(payments paymentRepository) *PaymentService {
 	return &PaymentService{payments: payments}
 }
@@ -70,6 +71,34 @@ func (s *PaymentService) Get(
 	merchantPublicID, paymentPublicID uuid.UUID,
 ) (Payment, error) {
 	rec, err := s.payments.GetPaymentByPublicID(ctx, merchantPublicID, paymentPublicID)
+	if err != nil {
+		return Payment{}, mapRepoErr(err)
+	}
+	return toPayment(rec), nil
+}
+
+// Capture moves an AUTHORIZED payment to CAPTURED.
+func (s *PaymentService) Capture(
+	ctx context.Context,
+	merchantPublicID, paymentPublicID uuid.UUID,
+) (Payment, error) {
+	return s.transition(ctx, merchantPublicID, paymentPublicID, model.PaymentStatusCaptured)
+}
+
+// Cancel moves a PENDING or AUTHORIZED payment to CANCELLED.
+func (s *PaymentService) Cancel(
+	ctx context.Context,
+	merchantPublicID, paymentPublicID uuid.UUID,
+) (Payment, error) {
+	return s.transition(ctx, merchantPublicID, paymentPublicID, model.PaymentStatusCancelled)
+}
+
+func (s *PaymentService) transition(
+	ctx context.Context,
+	merchantPublicID, paymentPublicID uuid.UUID,
+	next model.PaymentStatus,
+) (Payment, error) {
+	rec, err := s.payments.TransitionPayment(ctx, merchantPublicID, paymentPublicID, next)
 	if err != nil {
 		return Payment{}, mapRepoErr(err)
 	}

@@ -130,3 +130,60 @@ func TestWorkerRetriesTimeoutThenSucceeds(t *testing.T) {
 		t.Fatalf("attempt_count=%d", n)
 	}
 }
+
+func waitAuthorizeClaimed(t *testing.T, publicID string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var status string
+		var next time.Time
+		err := testPool.QueryRow(context.Background(),
+			`SELECT status, next_attempt_at FROM payments WHERE public_id = $1`, publicID,
+		).Scan(&status, &next)
+		if err != nil {
+			t.Fatalf("claim wait: %v", err)
+		}
+		if status != "PENDING" {
+			t.Fatalf("status=%s before cancel window", status)
+		}
+		if next.After(time.Now().Add(2 * time.Second)) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("worker did not claim payment")
+}
+
+func TestWorkerCancelDuringAuthorizeWins(t *testing.T) {
+	resetDB(t)
+	gw, err := bank.NewSimulator(bank.SimulatorConfig{
+		SuccessPct: 100,
+		MinDelayMS: 400,
+		MaxDelayMS: 500,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startAuthorizeWorker(t, gw, fastRetry())
+	r := testRouter(t)
+
+	id := createPayment(t, r)
+	waitAuthorizeClaimed(t, id)
+
+	rec := postPaymentAction(t, r, seedMerchantID(), id, "cancel")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel: %d %s", rec.Code, rec.Body.String())
+	}
+	if decodePayment(t, rec)["status"] != "CANCELLED" {
+		t.Fatalf("status: %v", decodePayment(t, rec)["status"])
+	}
+
+	time.Sleep(700 * time.Millisecond)
+	got := getPayment(t, r, seedMerchantID(), id)
+	if decodePayment(t, got)["status"] != "CANCELLED" {
+		t.Fatalf("worker overwrote cancel: %v", decodePayment(t, got)["status"])
+	}
+	if n := paymentAttemptCount(t, id); n != 0 {
+		t.Fatalf("attempt_count=%d; authorize write should have been abandoned", n)
+	}
+}

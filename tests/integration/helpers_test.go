@@ -110,3 +110,47 @@ func paymentJSON(amount int64, currency string) string {
 func randomKey() string {
 	return uuid.NewString()
 }
+
+func postPaymentAction(t *testing.T, r *gin.Engine, merchantID, paymentID, action string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/v1/payments/"+paymentID+"/"+action, nil)
+	req.Header.Set("X-Merchant-Id", merchantID)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+func forcePaymentStatus(t *testing.T, publicID string, status model.PaymentStatus) {
+	t.Helper()
+	tag, err := testPool.Exec(context.Background(),
+		`UPDATE payments SET status = $2, updated_at = now() WHERE public_id = $1`,
+		publicID, status)
+	if err != nil {
+		t.Fatalf("force status: %v", err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("force status: rows=%d", tag.RowsAffected())
+	}
+}
+
+func errorCode(t *testing.T, rec *httptest.ResponseRecorder) (code, message string) {
+	t.Helper()
+	body := decodePayment(t, rec)
+	errObj, _ := body["error"].(map[string]any)
+	code, _ = errObj["code"].(string)
+	message, _ = errObj["message"].(string)
+	return code, message
+}
+
+func createPayment(t *testing.T, r *gin.Engine) string {
+	t.Helper()
+	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	id, _ := decodePayment(t, rec)["id"].(string)
+	if id == "" {
+		t.Fatal("missing payment id")
+	}
+	return id
+}

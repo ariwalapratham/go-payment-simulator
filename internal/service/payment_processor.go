@@ -149,10 +149,14 @@ func (p *PaymentProcessor) persist(ctx context.Context, job *repository.PaymentR
 	err := p.store.ApplyAuthorizeDecision(dbCtx, in)
 	if errors.Is(err, repository.ErrLostLease) {
 		p.metrics.ObserveClaimLost()
-		p.evt(ctx).
+		e := p.evt(ctx).
 			Str("payment_id", job.Payment.PublicID.String()).
-			Str("event", "payment.authorize_claim_lost").
-			Msg("authorize claim lost")
+			Str("event", "payment.authorize_write_abandoned")
+		var lost repository.LostLeaseError
+		if errors.As(err, &lost) && lost.Status != "" {
+			e = e.Str("status", lost.Status.String())
+		}
+		e.Msg("abandoned authorize write, no longer pending")
 		return false, nil
 	}
 	if err != nil {

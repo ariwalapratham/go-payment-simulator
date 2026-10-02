@@ -49,9 +49,10 @@ func (f *fakeBank) Authorize(ctx context.Context, _ bank.AuthorizeRequest) (bank
 }
 
 type fakeStore struct {
-	mu      sync.Mutex
-	job     *repository.PaymentRecord
-	applied []repository.ApplyAuthorizeInput
+	mu       sync.Mutex
+	job      *repository.PaymentRecord
+	applied  []repository.ApplyAuthorizeInput
+	applyErr error
 }
 
 func (f *fakeStore) ClaimDuePayment(context.Context, time.Duration) (*repository.PaymentRecord, error) {
@@ -67,6 +68,9 @@ func (f *fakeStore) ClaimDuePayment(context.Context, time.Duration) (*repository
 func (f *fakeStore) ApplyAuthorizeDecision(_ context.Context, in repository.ApplyAuthorizeInput) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.applyErr != nil {
+		return f.applyErr
+	}
 	f.applied = append(f.applied, in)
 	if f.job != nil {
 		f.job.Payment.Status = in.Status
@@ -263,5 +267,25 @@ func TestProcessorMetricsOnSuccessAndRetry(t *testing.T) {
 	}
 	if m.attempts != 2 || m.retries != 1 || m.outcome != string(bank.OutcomeSuccess) {
 		t.Fatalf("success metrics %+v", m)
+	}
+}
+
+func TestProcessorAbandonsLostLease(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{
+		job:      pendingJob(),
+		applyErr: repository.LostLeaseError{Status: model.PaymentStatusCancelled},
+	}
+	m := &recMetrics{}
+	p := testProcessorMetrics(t, store, &fakeBank{outcomes: []bank.Outcome{bank.OutcomeSuccess}}, m)
+	if err := p.ProcessNext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.applied) != 0 {
+		t.Fatalf("applied %+v", store.applied)
+	}
+	if m.lost != 1 {
+		t.Fatalf("lost=%d", m.lost)
 	}
 }

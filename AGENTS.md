@@ -4,7 +4,7 @@
 Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`, `docs/api-db-design-payment-simulator.md`, and `docs/db-latest-design.md`.
 
 ## Phase
-**Fake bank + authorize worker (ARD days 5–7)** — DB-queue payment worker; capture/cancel/refund HTTP still 501.
+**Capture + cancel (ARD days 8–9, partial)** — capture/cancel HTTP live; refund HTTP still 501.
 
 ## Package map (actual vs doc)
 - HTTP: `internal/handler` + `internal/middleware` (doc: `internal/http`)
@@ -37,13 +37,15 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] Fake bank port (`bank.Gateway`, simulator, `PAYMENTS_BANK_*` config)
 - [x] Authorize worker pool (DB queue, `SKIP LOCKED` lease, retries/backoff)
 - [x] Authorize worker logs (`worker_id`, `bank_outcome`, transition events) + `AuthorizeMetrics` nop hook
+- [x] POST `/v1/payments/:id/capture` and `/cancel` with `FOR UPDATE` + `model.Transition`
+- [x] Authorize finalize abandons write when the row is no longer `PENDING` (cancel vs lease)
 
 ## In progress
 - (none)
 
 ## Explicitly deferred (do not implement yet)
-- Webhook workers, Prometheus `/metrics`
-- Capture, cancel, refund HTTP (still 501)
+- Webhook workers, New Relic `/metrics`
+- Refund HTTP (still 501)
 - API-key auth (`api_key_hash` unused)
 
 ## Commands

@@ -91,6 +91,60 @@ WHERE p.public_id = $1 AND m.public_id = $2`
 	return rec, nil
 }
 
+// TransitionPayment locks the merchant-scoped payment and applies next if the state machine allows it.
+// Concurrent capture/cancel serialize on FOR UPDATE; the loser gets ErrInvalidTransition.
+func (r *PaymentRepository) TransitionPayment(
+	ctx context.Context,
+	merchantPublicID, paymentPublicID uuid.UUID,
+	next model.PaymentStatus,
+) (*PaymentRecord, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transition payment: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const lockQ = `
+SELECT p.id, p.public_id, p.merchant_id, p.amount, p.currency, p.status,
+       p.attempt_count, p.next_attempt_at, p.last_error, p.created_at, p.updated_at,
+       m.public_id
+FROM payments p
+JOIN merchants m ON m.id = p.merchant_id
+WHERE p.public_id = $1 AND m.public_id = $2
+FOR UPDATE OF p`
+
+	rec, err := scanPaymentRecord(tx.QueryRow(ctx, lockQ, paymentPublicID, merchantPublicID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrPaymentNotFound
+		}
+		return nil, fmt.Errorf("lock payment for transition: %w", err)
+	}
+	if err := model.Transition(rec.Payment.Status, next); err != nil {
+		return nil, err
+	}
+
+	const upd = `
+UPDATE payments
+SET status = $2, updated_at = now()
+WHERE id = $1 AND status = $3
+RETURNING id, public_id, merchant_id, amount, currency, status,
+          attempt_count, next_attempt_at, last_error, created_at, updated_at`
+
+	p, err := scanPayment(tx.QueryRow(ctx, upd, rec.Payment.ID, next, rec.Payment.Status))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %s -> %s", model.ErrInvalidTransition, rec.Payment.Status, next)
+		}
+		return nil, fmt.Errorf("transition payment: %w", err)
+	}
+	rec.Payment = *p
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit transition payment: %w", err)
+	}
+	return rec, nil
+}
+
 // CreatePaymentIdempotent inserts once per (merchant, key). Concurrent losers retry then replay.
 func (r *PaymentRepository) CreatePaymentIdempotent(
 	ctx context.Context,

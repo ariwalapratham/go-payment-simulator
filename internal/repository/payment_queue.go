@@ -17,6 +17,21 @@ var (
 	ErrLostLease = errors.New("authorize claim lost")
 )
 
+// LostLeaseError is ErrLostLease with the status seen under FOR UPDATE.
+// Cancel of PENDING during an in-flight bank call is the expected case.
+type LostLeaseError struct {
+	Status model.PaymentStatus
+}
+
+func (e LostLeaseError) Error() string {
+	if e.Status == "" {
+		return ErrLostLease.Error()
+	}
+	return fmt.Sprintf("%s: status is %s", ErrLostLease.Error(), e.Status)
+}
+
+func (e LostLeaseError) Unwrap() error { return ErrLostLease }
+
 // ApplyAuthorizeInput is the row mutation after one bank attempt.
 type ApplyAuthorizeInput struct {
 	PaymentID            int64
@@ -87,7 +102,7 @@ FOR UPDATE`
 		return fmt.Errorf("lock payment for apply: %w", err)
 	}
 	if p.Status != model.PaymentStatusPending || p.AttemptCount != in.ExpectedAttemptCount {
-		return ErrLostLease
+		return LostLeaseError{Status: p.Status}
 	}
 	if in.Status != model.PaymentStatusPending {
 		if err := model.Transition(p.Status, in.Status); err != nil {
@@ -109,7 +124,7 @@ WHERE id = $1 AND status = $6 AND attempt_count = $7`
 		return fmt.Errorf("apply authorize decision: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrLostLease
+		return LostLeaseError{Status: p.Status}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit apply authorize: %w", err)

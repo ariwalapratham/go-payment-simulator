@@ -57,11 +57,48 @@ func TestCreatePaymentMissingHeaders(t *testing.T) {
 	}
 }
 
-func TestCaptureStillNotImplemented(t *testing.T) {
+func TestCaptureRequiresMerchantID(t *testing.T) {
 	t.Parallel()
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/payments/11111111-1111-1111-1111-111111111111/capture", nil)
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCancelRequiresMerchantID(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/payments/11111111-1111-1111-1111-111111111111/cancel", nil)
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCaptureInvalidPaymentID(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/payments/not-a-uuid/capture", nil)
+	req.Header.Set("X-Merchant-Id", "11111111-1111-1111-1111-111111111111")
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestRefundStillNotImplemented(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/payments/11111111-1111-1111-1111-111111111111/refund", nil)
 	req.Header.Set("X-Merchant-Id", "11111111-1111-1111-1111-111111111111")
 	testRouter().ServeHTTP(rec, req)
 

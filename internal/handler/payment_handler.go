@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -23,7 +24,7 @@ type PaymentHandler struct {
 	log      zerolog.Logger
 }
 
-// NewPaymentHandler wires POST/GET /v1/payments.
+// NewPaymentHandler wires POST/GET /v1/payments plus capture and cancel.
 func NewPaymentHandler(payments *service.PaymentService, log *zerolog.Logger) *PaymentHandler {
 	h := &PaymentHandler{payments: payments, log: zerolog.Nop()}
 	if log != nil {
@@ -88,12 +89,30 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 
 // Get handles GET /v1/payments/:id for the merchant in X-Merchant-Id.
 func (h *PaymentHandler) Get(c *gin.Context) {
+	h.loadPayment(c, "get payment", h.payments.Get)
+}
+
+// Capture handles POST /v1/payments/:id/capture. 200 CAPTURED, 409 if not AUTHORIZED.
+func (h *PaymentHandler) Capture(c *gin.Context) {
+	h.loadPayment(c, "capture payment", h.payments.Capture)
+}
+
+// Cancel handles POST /v1/payments/:id/cancel. 200 CANCELLED, 409 if not PENDING or AUTHORIZED.
+func (h *PaymentHandler) Cancel(c *gin.Context) {
+	h.loadPayment(c, "cancel payment", h.payments.Cancel)
+}
+
+func (h *PaymentHandler) loadPayment(
+	c *gin.Context,
+	action string,
+	fn func(context.Context, uuid.UUID, uuid.UUID) (service.Payment, error),
+) {
 	log := h.reqLog(c)
 	merchantID := middleware.MerchantIDFrom(c)
 
 	paymentID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		log.Warn().Str("merchant_id", merchantID.String()).Str("payment_id", c.Param("id")).Msg("get payment invalid id")
+		log.Warn().Str("merchant_id", merchantID.String()).Str("payment_id", c.Param("id")).Msg(action + " invalid id")
 		middleware.AbortWithError(c, errs.NewBadRequestError("invalid payment id", true, nil, nil, nil))
 		return
 	}
@@ -103,12 +122,12 @@ func (h *PaymentHandler) Get(c *gin.Context) {
 		return
 	}
 
-	payment, err := h.payments.Get(c.Request.Context(), merchantID, paymentID)
+	payment, err := fn(c.Request.Context(), merchantID, paymentID)
 	if err != nil {
 		log.Warn().Err(err).
 			Str("merchant_id", merchantID.String()).
 			Str("payment_id", paymentID.String()).
-			Msg("get payment failed")
+			Msg(action + " failed")
 		middleware.AbortWithError(c, httpPaymentErr(err))
 		return
 	}
@@ -118,7 +137,7 @@ func (h *PaymentHandler) Get(c *gin.Context) {
 		Str("merchant_id", merchantID.String()).
 		Str("payment_id", resp.ID).
 		Str("status", resp.Status).
-		Msg("get payment")
+		Msg(action)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -126,7 +145,7 @@ func (h *PaymentHandler) reqLog(c *gin.Context) zerolog.Logger {
 	return h.log.With().Str("request_id", middleware.GetRequestID(c)).Logger()
 }
 
-// registerPaymentRoutes mounts POST/GET /v1/payments; capture/cancel/refund stay 501.
+// registerPaymentRoutes mounts POST/GET /v1/payments plus capture/cancel; refund stays 501.
 func registerPaymentRoutes(rg *gin.RouterGroup, mw *middleware.Middlewares, h *PaymentHandler) {
 	if h == nil {
 		h = NewPaymentHandler(nil, nil)
@@ -135,8 +154,8 @@ func registerPaymentRoutes(rg *gin.RouterGroup, mw *middleware.Middlewares, h *P
 	g.Use(mw.MerchantID)
 	g.POST("", mw.IdempotencyKey, h.Create)
 	g.GET("/:id", h.Get)
-	g.POST("/:id/capture", notImplemented)
-	g.POST("/:id/cancel", notImplemented)
+	g.POST("/:id/capture", h.Capture)
+	g.POST("/:id/cancel", h.Cancel)
 	g.POST("/:id/refund", notImplemented)
 }
 
@@ -186,7 +205,7 @@ func httpPaymentErr(err error) error {
 	}
 }
 
-// notImplemented is 501 for POST /v1/payments/:id/{capture,cancel,refund} and GET /v1/refunds/:id.
+// notImplemented is 501 for POST /v1/payments/:id/refund and GET /v1/refunds/:id.
 func notImplemented(c *gin.Context) {
 	middleware.AbortWithError(c, errs.NewNotImplementedError())
 }
