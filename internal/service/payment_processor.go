@@ -8,6 +8,7 @@ import (
 
 	"github.com/ariwalapratham/go-payment-simulator/internal/bank"
 	"github.com/ariwalapratham/go-payment-simulator/internal/model"
+	"github.com/ariwalapratham/go-payment-simulator/internal/observability"
 	"github.com/ariwalapratham/go-payment-simulator/internal/repository"
 	"github.com/rs/zerolog"
 )
@@ -29,17 +30,19 @@ type PaymentProcessor struct {
 	retry       RetryConfig
 	callTimeout time.Duration
 	lease       time.Duration
+	metrics     observability.AuthorizeMetrics
 	log         zerolog.Logger
 	now         func() time.Time
 }
 
-// NewPaymentProcessor wires authorize processing. log may be nil.
+// NewPaymentProcessor wires authorize processing. log and metrics may be nil.
 func NewPaymentProcessor(
 	store authorizeStore,
 	gateway bank.Gateway,
 	retry RetryConfig,
 	callTimeout, lease time.Duration,
 	log *zerolog.Logger,
+	metrics observability.AuthorizeMetrics,
 ) (*PaymentProcessor, error) {
 	if store == nil {
 		return nil, fmt.Errorf("payment processor: store is required")
@@ -62,8 +65,12 @@ func NewPaymentProcessor(
 		retry:       retry,
 		callTimeout: callTimeout,
 		lease:       lease,
+		metrics:     metrics,
 		log:         zerolog.Nop(),
 		now:         time.Now,
+	}
+	if p.metrics == nil {
+		p.metrics = observability.NopAuthorizeMetrics{}
 	}
 	if log != nil {
 		p.log = *log
@@ -91,7 +98,7 @@ func (p *PaymentProcessor) process(ctx context.Context, job *repository.PaymentR
 		return nil
 	}
 	if ctx.Err() != nil {
-		return p.releaseClaim(job)
+		return p.releaseClaim(ctx, job)
 	}
 
 	callCtx, cancel := context.WithTimeout(ctx, p.callTimeout)
@@ -105,7 +112,7 @@ func (p *PaymentProcessor) process(ctx context.Context, job *repository.PaymentR
 	})
 	if err != nil {
 		if ctx.Err() != nil {
-			return p.releaseClaim(job)
+			return p.releaseClaim(ctx, job)
 		}
 		res.Outcome = bank.OutcomeTimeout
 		res.Message = err.Error()
@@ -116,43 +123,46 @@ func (p *PaymentProcessor) process(ctx context.Context, job *repository.PaymentR
 		return fmt.Errorf("decide authorize %s: %w", job.Payment.PublicID, err)
 	}
 
-	if err := p.persist(job, repository.ApplyAuthorizeInput{
+	applied, err := p.persist(ctx, job, repository.ApplyAuthorizeInput{
 		PaymentID:            job.Payment.ID,
 		ExpectedAttemptCount: job.Payment.AttemptCount,
 		Status:               decision.NextStatus,
 		AttemptCount:         decision.AttemptCount,
 		NextAttemptAt:        decision.NextAttemptAt,
 		LastError:            decision.LastError,
-	}); err != nil {
+	})
+	if err != nil || !applied {
 		return err
 	}
 
-	p.log.Info().
-		Str("payment_id", job.Payment.PublicID.String()).
-		Int("attempt", decision.AttemptCount).
-		Str("outcome", res.Outcome.String()).
-		Str("next_status", decision.NextStatus.String()).
-		Time("next_attempt_at", decision.NextAttemptAt).
-		Msg("authorize processed")
+	p.metrics.ObserveAuthorizeAttempt(res.Outcome.String(), decision.NextStatus.String())
+	if decision.NextStatus == model.PaymentStatusPending {
+		p.metrics.ObserveAuthorizeRetry()
+	}
+	p.logAuthorize(ctx, job, res.Outcome, decision)
 	return nil
 }
 
-func (p *PaymentProcessor) persist(job *repository.PaymentRecord, in repository.ApplyAuthorizeInput) error {
-	ctx, cancel := context.WithTimeout(context.Background(), persistTimeout)
+func (p *PaymentProcessor) persist(ctx context.Context, job *repository.PaymentRecord, in repository.ApplyAuthorizeInput) (bool, error) {
+	dbCtx, cancel := context.WithTimeout(context.Background(), persistTimeout)
 	defer cancel()
-	err := p.store.ApplyAuthorizeDecision(ctx, in)
+	err := p.store.ApplyAuthorizeDecision(dbCtx, in)
 	if errors.Is(err, repository.ErrLostLease) {
-		p.log.Info().Str("payment_id", job.Payment.PublicID.String()).Msg("authorize claim lost")
-		return nil
+		p.metrics.ObserveClaimLost()
+		p.evt(ctx).
+			Str("payment_id", job.Payment.PublicID.String()).
+			Str("event", "payment.authorize_claim_lost").
+			Msg("authorize claim lost")
+		return false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("apply authorize %s: %w", job.Payment.PublicID, err)
+		return false, fmt.Errorf("apply authorize %s: %w", job.Payment.PublicID, err)
 	}
-	return nil
+	return true, nil
 }
 
-func (p *PaymentProcessor) releaseClaim(job *repository.PaymentRecord) error {
-	return p.persist(job, repository.ApplyAuthorizeInput{
+func (p *PaymentProcessor) releaseClaim(ctx context.Context, job *repository.PaymentRecord) error {
+	applied, err := p.persist(ctx, job, repository.ApplyAuthorizeInput{
 		PaymentID:            job.Payment.ID,
 		ExpectedAttemptCount: job.Payment.AttemptCount,
 		Status:               model.PaymentStatusPending,
@@ -160,4 +170,53 @@ func (p *PaymentProcessor) releaseClaim(job *repository.PaymentRecord) error {
 		NextAttemptAt:        p.now(),
 		LastError:            job.Payment.LastError,
 	})
+	if err != nil || !applied {
+		return err
+	}
+	p.evt(ctx).
+		Str("payment_id", job.Payment.PublicID.String()).
+		Str("event", "payment.authorize_claim_released").
+		Str("reason", "shutdown").
+		Msg("authorize claim released")
+	return nil
+}
+
+func (p *PaymentProcessor) logAuthorize(ctx context.Context, job *repository.PaymentRecord, outcome bank.Outcome, d Decision) {
+	event, msg := authorizeEvent(d.NextStatus)
+	e := p.evt(ctx).
+		Str("payment_id", job.Payment.PublicID.String()).
+		Str("merchant_id", job.MerchantPublicID.String()).
+		Int("attempt", d.AttemptCount).
+		Str("bank_outcome", outcome.String()).
+		Str("from_status", model.PaymentStatusPending.String()).
+		Str("to_status", d.NextStatus.String()).
+		Str("event", event)
+	if d.NextStatus == model.PaymentStatusPending {
+		e = e.Time("next_attempt_at", d.NextAttemptAt)
+	}
+	if d.LastError != nil {
+		e = e.Str("last_error", *d.LastError)
+	}
+	e.Msg(msg)
+}
+
+func (p *PaymentProcessor) evt(ctx context.Context) *zerolog.Event {
+	e := p.log.Info().Str("component", "payment_processor")
+	if id, ok := observability.WorkerIDFrom(ctx); ok {
+		e = e.Int("worker_id", id)
+	}
+	return e
+}
+
+func authorizeEvent(to model.PaymentStatus) (event, msg string) {
+	switch to {
+	case model.PaymentStatusAuthorized:
+		return "payment.authorized", "payment authorized"
+	case model.PaymentStatusFailed:
+		return "payment.authorize_failed", "payment authorize failed"
+	case model.PaymentStatusPending:
+		return "payment.authorize_retry_scheduled", "payment authorize retry scheduled"
+	default:
+		return "payment.authorize_processed", "authorize processed"
+	}
 }

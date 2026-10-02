@@ -59,6 +59,7 @@ func main() {
 		time.Duration(cfg.Bank.CallTimeout)*time.Second,
 		time.Duration(cfg.Worker.LeaseSeconds)*time.Second,
 		srv.Logger,
+		nil,
 	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("payment processor failed")

@@ -22,7 +22,7 @@ func startAuthorizeWorker(t *testing.T, gw bank.Gateway, retry service.RetryConf
 	log := zerolog.Nop()
 	repo := repository.NewPaymentRepository(testPool)
 	proc, err := service.NewPaymentProcessor(
-		repo, gw, retry, time.Second, 5*time.Second, &log,
+		repo, gw, retry, time.Second, 5*time.Second, &log, nil,
 	)
 	if err != nil {
 		t.Fatal(err)

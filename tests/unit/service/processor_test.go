@@ -9,6 +9,7 @@ import (
 
 	"github.com/ariwalapratham/go-payment-simulator/internal/bank"
 	"github.com/ariwalapratham/go-payment-simulator/internal/model"
+	"github.com/ariwalapratham/go-payment-simulator/internal/observability"
 	"github.com/ariwalapratham/go-payment-simulator/internal/repository"
 	"github.com/ariwalapratham/go-payment-simulator/internal/service"
 	"github.com/google/uuid"
@@ -87,10 +88,46 @@ func pendingJob() *repository.PaymentRecord {
 	}
 }
 
+type recMetrics struct {
+	mu       sync.Mutex
+	attempts int
+	retries  int
+	lost     int
+	outcome  string
+	toStatus string
+}
+
+func (m *recMetrics) ObserveAuthorizeAttempt(bankOutcome, toStatus string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.attempts++
+	m.outcome = bankOutcome
+	m.toStatus = toStatus
+}
+
+func (m *recMetrics) ObserveAuthorizeRetry() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retries++
+}
+
+func (m *recMetrics) ObserveClaimLost() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lost++
+}
+
 func testProcessor(t *testing.T, store *fakeStore, gw bank.Gateway) *service.PaymentProcessor {
 	t.Helper()
+	return testProcessorMetrics(t, store, gw, nil)
+}
+
+func testProcessorMetrics(
+	t *testing.T, store *fakeStore, gw bank.Gateway, metrics observability.AuthorizeMetrics,
+) *service.PaymentProcessor {
+	t.Helper()
 	p, err := service.NewPaymentProcessor(
-		store, gw, testRetry(5), 50*time.Millisecond, time.Second, nil,
+		store, gw, testRetry(5), 50*time.Millisecond, time.Second, nil, metrics,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +220,7 @@ func TestProcessorCancelDuringAuthorizeReleasesLease(t *testing.T) {
 		delay:    time.Second,
 		started:  make(chan struct{}),
 	}
-	p, err := service.NewPaymentProcessor(store, gw, testRetry(5), 2*time.Second, 3*time.Second, nil)
+	p, err := service.NewPaymentProcessor(store, gw, testRetry(5), 2*time.Second, 3*time.Second, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,5 +242,26 @@ func TestProcessorCancelDuringAuthorizeReleasesLease(t *testing.T) {
 	got := store.applied[0]
 	if got.Status != model.PaymentStatusPending || got.AttemptCount != 0 {
 		t.Fatalf("lease release %+v", got)
+	}
+}
+
+func TestProcessorMetricsOnSuccessAndRetry(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{job: pendingJob()}
+	m := &recMetrics{}
+	gw := &fakeBank{outcomes: []bank.Outcome{bank.OutcomeTimeout, bank.OutcomeSuccess}}
+	p := testProcessorMetrics(t, store, gw, m)
+	if err := p.ProcessNext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if m.attempts != 1 || m.retries != 1 || m.toStatus != string(model.PaymentStatusPending) {
+		t.Fatalf("retry metrics %+v", m)
+	}
+	if err := p.ProcessNext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if m.attempts != 2 || m.retries != 1 || m.outcome != string(bank.OutcomeSuccess) {
+		t.Fatalf("success metrics %+v", m)
 	}
 }

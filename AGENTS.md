@@ -13,6 +13,7 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - Data: `internal/repository` (doc: sqlc/sqlx TBD)
 - Workers: `internal/worker` (payment pool started; webhook not started)
 - Bank: `internal/bank` (`Gateway` + in-process `Simulator`; `bank.NewGateway`)
+- Observability: `internal/observability` (`worker_id` context, `AuthorizeMetrics`)
 - DB/migrate: `internal/database`, `migrations/` (embedded SQL)
 
 ## Done
@@ -35,12 +36,13 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] Integration concurrency tests for idempotent create
 - [x] Fake bank port (`bank.Gateway`, simulator, `PAYMENTS_BANK_*` config)
 - [x] Authorize worker pool (DB queue, `SKIP LOCKED` lease, retries/backoff)
+- [x] Authorize worker logs (`worker_id`, `bank_outcome`, transition events) + `AuthorizeMetrics` nop hook
 
 ## In progress
 - (none)
 
 ## Explicitly deferred (do not implement yet)
-- Webhook workers, prometheus metrics
+- Webhook workers, Prometheus `/metrics`
 - Capture, cancel, refund HTTP (still 501)
 - API-key auth (`api_key_hash` unused)
 

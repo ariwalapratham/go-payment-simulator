@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ariwalapratham/go-payment-simulator/internal/observability"
 	"github.com/ariwalapratham/go-payment-simulator/internal/service"
 	"github.com/rs/zerolog"
 )
@@ -49,12 +50,12 @@ func NewPaymentWorker(proc Processor, poolSize int, pollInterval time.Duration, 
 
 // Start runs poolSize loops until ctx is canceled. Wait after cancel to drain in-flight work.
 func (w *PaymentWorker) Start(ctx context.Context) {
-	for range w.poolSize {
+	for id := range w.poolSize {
 		w.wg.Add(1)
-		go func() {
+		go func(workerID int) {
 			defer w.wg.Done()
-			w.run(ctx)
-		}()
+			w.run(observability.WithWorkerID(ctx, workerID))
+		}(id)
 	}
 }
 
@@ -81,7 +82,11 @@ func (w *PaymentWorker) run(ctx context.Context) {
 			}
 			continue
 		}
-		w.log.Error().Err(err).Msg("payment worker")
+		e := w.log.Error().Err(err).Str("component", "payment_worker")
+		if id, ok := observability.WorkerIDFrom(ctx); ok {
+			e = e.Int("worker_id", id)
+		}
+		e.Msg("payment worker")
 		if waitErr := waitCtx(ctx, w.pollInterval); waitErr != nil {
 			return
 		}
