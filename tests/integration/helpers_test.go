@@ -57,8 +57,9 @@ func testRouter(t *testing.T) *gin.Engine {
 		Logger: &log,
 	}
 	repo := repository.NewPaymentRepository(testPool)
-	h := handler.NewPaymentHandler(service.NewPaymentService(repo), &log)
-	return handler.NewRouter(s, middleware.NewMiddlewares(s), h)
+	payments := handler.NewPaymentHandler(service.NewPaymentService(repo), &log)
+	refunds := handler.NewRefundHandler(service.NewRefundService(repo), &log)
+	return handler.NewRouter(s, middleware.NewMiddlewares(s), payments, refunds)
 }
 
 func postPayment(t *testing.T, r *gin.Engine, merchantID, idempotencyKey, body string) *httptest.ResponseRecorder {
@@ -153,4 +154,62 @@ func createPayment(t *testing.T, r *gin.Engine) string {
 		t.Fatal("missing payment id")
 	}
 	return id
+}
+
+func capturedPayment(t *testing.T, r *gin.Engine) string {
+	t.Helper()
+	id := createPayment(t, r)
+	forcePaymentStatus(t, id, model.PaymentStatusAuthorized)
+	rec := postPaymentAction(t, r, seedMerchantID(), id, "capture")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("capture: %d %s", rec.Code, rec.Body.String())
+	}
+	return id
+}
+
+func refundJSON(amount int64) string {
+	return fmt.Sprintf(`{"amount":%d}`, amount)
+}
+
+func postRefund(t *testing.T, r *gin.Engine, merchantID, paymentID, idempotencyKey, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/v1/payments/"+paymentID+"/refund", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Merchant-Id", merchantID)
+	req.Header.Set("Idempotency-Key", idempotencyKey)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+func getRefund(t *testing.T, r *gin.Engine, merchantID, refundID string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/v1/refunds/"+refundID, nil)
+	req.Header.Set("X-Merchant-Id", merchantID)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+func countRefunds(t *testing.T) int {
+	t.Helper()
+	var n int
+	if err := testPool.QueryRow(context.Background(), `SELECT COUNT(*) FROM refunds`).Scan(&n); err != nil {
+		t.Fatalf("count refunds: %v", err)
+	}
+	return n
+}
+
+func succeededRefundSum(t *testing.T, paymentPublicID string) int64 {
+	t.Helper()
+	var sum int64
+	err := testPool.QueryRow(context.Background(), `
+SELECT COALESCE(SUM(r.amount), 0)::bigint
+FROM refunds r
+JOIN payments p ON p.id = r.payment_id
+WHERE p.public_id = $1 AND r.status = 'SUCCEEDED'`, paymentPublicID).Scan(&sum)
+	if err != nil {
+		t.Fatalf("sum refunds: %v", err)
+	}
+	return sum
 }

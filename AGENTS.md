@@ -4,7 +4,7 @@
 Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`, `docs/api-db-design-payment-simulator.md`, and `docs/db-latest-design.md`.
 
 ## Phase
-**Capture + cancel (ARD days 8–9, partial)** — capture/cancel HTTP live; refund HTTP still 501.
+**Capture, cancel, refunds (ARD days 8–9)** — capture/cancel/refund HTTP live; webhook delivery still deferred.
 
 ## Package map (actual vs doc)
 - HTTP: `internal/handler` + `internal/middleware` (doc: `internal/http`)
@@ -24,9 +24,9 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] `internal/errs`, `internal/sqlerr` (Postgres mapping)
 - [x] main wired to server
 - [x] docker-compose (Postgres only) + Dockerfile
-- [x] SQL migrations (`000001_init`, bigint + public_id)
+- [x] SQL migrations (`000001_init`, `000002` request_hash, `000003` idempotency scope + refund_id)
 - [x] /v1/health
-- [x] Router stubs for /v1/payments, refunds (501)
+- [x] Router stubs for /v1/payments, refunds (capture/cancel/refund implemented)
 - [x] .env.example ↔ PAYMENTS_ alignment (+ envKeyTransform in config)
 - [x] Taskfile integration test path
 - [x] API error envelope middleware (`internal/middleware/errors.go`)
@@ -39,13 +39,13 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] Authorize worker logs (`worker_id`, `bank_outcome`, transition events) + `AuthorizeMetrics` nop hook
 - [x] POST `/v1/payments/:id/capture` and `/cancel` with `FOR UPDATE` + `model.Transition`
 - [x] Authorize finalize abandons write when the row is no longer `PENDING` (cancel vs lease)
+- [x] POST `/v1/payments/:id/refund` + GET `/v1/refunds/:id` with `FOR UPDATE` balance math and scoped idempotency
 
 ## In progress
 - (none)
 
 ## Explicitly deferred (do not implement yet)
-- Webhook workers, New Relic `/metrics`
-- Refund HTTP (still 501)
+- Webhook workers, Prometheus `/metrics`
 - API-key auth (`api_key_hash` unused)
 
 ## Commands

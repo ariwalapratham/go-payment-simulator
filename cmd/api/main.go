@@ -73,7 +73,8 @@ func main() {
 
 	mw := middleware.NewMiddlewares(srv)
 	payments := handler.NewPaymentHandler(service.NewPaymentService(repo), srv.Logger)
-	router := handler.NewRouter(srv, mw, payments)
+	refunds := handler.NewRefundHandler(service.NewRefundService(repo), srv.Logger)
+	router := handler.NewRouter(srv, mw, payments, refunds)
 	srv.SetupHTTPServer(router)
 
 	workerCtx, stopWorkers := context.WithCancel(context.Background())

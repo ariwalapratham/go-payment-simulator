@@ -43,12 +43,14 @@ type DBRefund struct {
 
 // DBIdempotencyKey represents the idempotency_keys table in the database.
 type DBIdempotencyKey struct {
-	ID             int64     `db:"id"`
-	MerchantID     int64     `db:"merchant_id"`
-	IdempotencyKey string    `db:"idempotency_key"`
-	PaymentID      *int64    `db:"payment_id"`
-	RequestHash    string    `db:"request_hash"`
-	CreatedAt      time.Time `db:"created_at"`
+	ID             int64            `db:"id"`
+	MerchantID     int64            `db:"merchant_id"`
+	IdempotencyKey string           `db:"idempotency_key"`
+	Scope          IdempotencyScope `db:"scope"`
+	PaymentID      *int64           `db:"payment_id"`
+	RefundID       *int64           `db:"refund_id"`
+	RequestHash    string           `db:"request_hash"`
+	CreatedAt      time.Time        `db:"created_at"`
 }
 
 // DBWebhookEvent represents the webhook_events table in the database.

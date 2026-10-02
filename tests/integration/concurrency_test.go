@@ -99,3 +99,88 @@ func TestCapture_ConcurrentOnce(t *testing.T) {
 		t.Fatalf("status %v", decodePayment(t, got)["status"])
 	}
 }
+
+func TestRefund_ConcurrentDifferentKeysDoNotOverRefund(t *testing.T) {
+	resetDB(t)
+	r := testRouter(t)
+	id := capturedPayment(t, r)
+	const n = 20
+
+	codes := make([]int, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			rec := postRefund(t, r, seedMerchantID(), id, randomKey(), refundJSON(3000))
+			codes[i] = rec.Code
+		}(i)
+	}
+	wg.Wait()
+
+	if sum := succeededRefundSum(t, id); sum > 5000 {
+		t.Fatalf("refunded %d exceeds captured 5000", sum)
+	}
+	if sum := succeededRefundSum(t, id); sum != 3000 {
+		t.Fatalf("refunded %d want 3000", sum)
+	}
+
+	ok, unprocessable, conflict := 0, 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusCreated, http.StatusOK:
+			ok++
+		case http.StatusUnprocessableEntity:
+			unprocessable++
+		case http.StatusConflict:
+			conflict++
+		default:
+			t.Fatalf("unexpected status %d", c)
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("successes=%d unprocessable=%d conflict=%d", ok, unprocessable, conflict)
+	}
+}
+
+func TestRefund_ConcurrentSameKeyOnce(t *testing.T) {
+	resetDB(t)
+	r := testRouter(t)
+	id := capturedPayment(t, r)
+	key := randomKey()
+	const n = 20
+
+	codes := make([]int, n)
+	ids := make([]string, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			rec := postRefund(t, r, seedMerchantID(), id, key, refundJSON(3000))
+			codes[i] = rec.Code
+			body := decodePayment(t, rec)
+			ids[i], _ = body["id"].(string)
+		}(i)
+	}
+	wg.Wait()
+
+	if countRefunds(t) != 1 {
+		t.Fatalf("refund rows: %d", countRefunds(t))
+	}
+	var winner string
+	for i, c := range codes {
+		if c != http.StatusCreated && c != http.StatusOK {
+			t.Fatalf("unexpected status %d", c)
+		}
+		if ids[i] == "" {
+			t.Fatal("missing refund id")
+		}
+		if winner == "" {
+			winner = ids[i]
+		}
+		if ids[i] != winner {
+			t.Fatalf("mixed ids: %s vs %s", winner, ids[i])
+		}
+	}
+}

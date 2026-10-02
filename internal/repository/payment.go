@@ -24,8 +24,15 @@ func (retryError) Error() string { return "retry idempotent create" }
 var (
 	ErrMerchantNotFound     = errors.New("merchant not found")
 	ErrPaymentNotFound      = errors.New("payment not found")
+	ErrRefundNotFound       = errors.New("refund not found")
 	ErrIdempotencyKeyReused = errors.New("idempotency key reused with a different payload")
+	ErrRefundExceedsBalance = errors.New("refund exceeds remaining balance")
 )
+
+// RemainingRefundable is captured amount minus succeeded refunds.
+func RemainingRefundable(captured, succeededSum int64) int64 {
+	return captured - succeededSum
+}
 
 type CreatePaymentInput struct {
 	MerchantPublicID uuid.UUID
@@ -181,7 +188,7 @@ func (r *PaymentRepository) createPaymentOnce(
 		return nil, false, err
 	}
 
-	claim, won, err := claimIdempotency(ctx, tx, merchant.ID, in.IdempotencyKey, in.RequestHash)
+	claim, won, err := claimIdempotency(ctx, tx, merchant.ID, model.IdempotencyScopePaymentCreate, in.IdempotencyKey, in.RequestHash)
 	if err != nil {
 		return nil, false, err
 	}
@@ -200,7 +207,7 @@ func (r *PaymentRepository) createPaymentOnce(
 		return &PaymentRecord{Payment: *payment, MerchantPublicID: merchant.PublicID}, true, nil
 	}
 
-	payment, err := paymentFromExistingClaim(ctx, tx, merchant.ID, in.IdempotencyKey, in.RequestHash)
+	payment, err := paymentFromExistingClaim(ctx, tx, merchant.ID, model.IdempotencyScopePaymentCreate, in.IdempotencyKey, in.RequestHash)
 	if err != nil {
 		return nil, false, err
 	}
@@ -232,15 +239,16 @@ func claimIdempotency(
 	ctx context.Context,
 	tx pgx.Tx,
 	merchantID int64,
+	scope model.IdempotencyScope,
 	key, requestHash string,
 ) (model.DBIdempotencyKey, bool, error) {
 	const q = `
-INSERT INTO idempotency_keys (merchant_id, idempotency_key, request_hash, payment_id)
-VALUES ($1, $2, $3, NULL)
-ON CONFLICT (merchant_id, idempotency_key) DO NOTHING
-RETURNING id, merchant_id, idempotency_key, payment_id, request_hash, created_at`
+INSERT INTO idempotency_keys (merchant_id, idempotency_key, scope, request_hash, payment_id)
+VALUES ($1, $2, $3, $4, NULL)
+ON CONFLICT (merchant_id, scope, idempotency_key) DO NOTHING
+RETURNING id, merchant_id, idempotency_key, scope, payment_id, refund_id, request_hash, created_at`
 
-	claim, err := scanIdempotencyKey(tx.QueryRow(ctx, q, merchantID, key, requestHash))
+	claim, err := scanIdempotencyKey(tx.QueryRow(ctx, q, merchantID, key, scope, requestHash))
 	if err == nil {
 		return *claim, true, nil
 	}
@@ -280,23 +288,12 @@ func paymentFromExistingClaim(
 	ctx context.Context,
 	tx pgx.Tx,
 	merchantID int64,
+	scope model.IdempotencyScope,
 	key, requestHash string,
 ) (*model.DBPayment, error) {
-	const q = `
-SELECT id, merchant_id, idempotency_key, payment_id, request_hash, created_at
-FROM idempotency_keys
-WHERE merchant_id = $1 AND idempotency_key = $2
-FOR UPDATE`
-
-	claim, err := scanIdempotencyKey(tx.QueryRow(ctx, q, merchantID, key))
+	claim, err := lockIdempotencyClaim(ctx, tx, merchantID, scope, key, requestHash)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, retryError{}
-		}
-		return nil, fmt.Errorf("lock idempotency key: %w", err)
-	}
-	if claim.RequestHash != requestHash {
-		return nil, ErrIdempotencyKeyReused
+		return nil, err
 	}
 	if claim.PaymentID == nil {
 		return nil, retryError{}
@@ -307,6 +304,33 @@ FOR UPDATE`
 		return nil, err
 	}
 	return payment, nil
+}
+
+// lockIdempotencyClaim FOR UPDATE waits for the winner; mismatch → ErrIdempotencyKeyReused.
+func lockIdempotencyClaim(
+	ctx context.Context,
+	tx pgx.Tx,
+	merchantID int64,
+	scope model.IdempotencyScope,
+	key, requestHash string,
+) (*model.DBIdempotencyKey, error) {
+	const q = `
+SELECT id, merchant_id, idempotency_key, scope, payment_id, refund_id, request_hash, created_at
+FROM idempotency_keys
+WHERE merchant_id = $1 AND scope = $2 AND idempotency_key = $3
+FOR UPDATE`
+
+	claim, err := scanIdempotencyKey(tx.QueryRow(ctx, q, merchantID, scope, key))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, retryError{}
+		}
+		return nil, fmt.Errorf("lock idempotency key: %w", err)
+	}
+	if claim.RequestHash != requestHash {
+		return nil, ErrIdempotencyKeyReused
+	}
+	return claim, nil
 }
 
 // paymentByID loads by bigint PK; missing row means the winner has not committed yet.
@@ -367,7 +391,7 @@ func scanPaymentRecord(row pgx.Row) (*PaymentRecord, error) {
 func scanIdempotencyKey(row pgx.Row) (*model.DBIdempotencyKey, error) {
 	var k model.DBIdempotencyKey
 	if err := row.Scan(
-		&k.ID, &k.MerchantID, &k.IdempotencyKey, &k.PaymentID, &k.RequestHash, &k.CreatedAt,
+		&k.ID, &k.MerchantID, &k.IdempotencyKey, &k.Scope, &k.PaymentID, &k.RefundID, &k.RequestHash, &k.CreatedAt,
 	); err != nil {
 		return nil, err
 	}

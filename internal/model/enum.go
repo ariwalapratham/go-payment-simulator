@@ -92,6 +92,16 @@ func ParseRefundStatus(v string) (RefundStatus, error) {
 	return s, nil
 }
 
+// IdempotencyScope partitions (merchant, key) uniqueness per operation.
+type IdempotencyScope string
+
+const (
+	IdempotencyScopePaymentCreate IdempotencyScope = "payment.create"
+	IdempotencyScopePaymentRefund IdempotencyScope = "payment.refund"
+)
+
+func (s IdempotencyScope) String() string { return string(s) }
+
 type WebhookEventType string
 
 const (
