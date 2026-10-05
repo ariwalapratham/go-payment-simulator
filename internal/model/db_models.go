@@ -9,11 +9,13 @@ import (
 
 // DBMerchant represents the merchants table in the database.
 type DBMerchant struct {
-	ID         int64     `db:"id"`
-	PublicID   uuid.UUID `db:"public_id"`
-	Name       string    `db:"name"`
-	APIKeyHash string    `db:"api_key_hash"`
-	CreatedAt  time.Time `db:"created_at"`
+	ID            int64     `db:"id"`
+	PublicID      uuid.UUID `db:"public_id"`
+	Name          string    `db:"name"`
+	APIKeyHash    string    `db:"api_key_hash"`
+	WebhookURL    *string   `db:"webhook_url"`
+	WebhookSecret string    `db:"webhook_secret"`
+	CreatedAt     time.Time `db:"created_at"`
 }
 
 // DBPayment represents the payments table in the database.

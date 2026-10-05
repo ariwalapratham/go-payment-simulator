@@ -15,6 +15,7 @@ type Middlewares struct {
 	Errors         gin.HandlerFunc
 	MerchantID     gin.HandlerFunc
 	IdempotencyKey gin.HandlerFunc
+	AdminAuth      gin.HandlerFunc
 	RateLimit      *RateLimitMiddleware
 }
 
@@ -22,6 +23,11 @@ func NewMiddlewares(s *server.Server) *Middlewares {
 	var nrApp *newrelic.Application
 	if s.LoggerService != nil {
 		nrApp = s.LoggerService.GetApplication()
+	}
+
+	adminKey := ""
+	if s != nil && s.Config != nil {
+		adminKey = s.Config.Admin.APIKey
 	}
 
 	return &Middlewares{
@@ -32,6 +38,7 @@ func NewMiddlewares(s *server.Server) *Middlewares {
 		Errors:         ErrorHandler(),
 		MerchantID:     RequireMerchantID(),
 		IdempotencyKey: RequireIdempotencyKey(),
+		AdminAuth:      AdminAuth(adminKey),
 		RateLimit:      NewRateLimitMiddleware(s),
 	}
 }

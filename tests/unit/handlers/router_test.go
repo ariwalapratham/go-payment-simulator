@@ -19,10 +19,20 @@ func testRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	log := zerolog.Nop()
 	s := &server.Server{
-		Config: &config.Config{Primary: config.Primary{Env: "test"}},
+		Config: &config.Config{
+			Primary: config.Primary{Env: "test"},
+			Admin:   config.AdminConfig{APIKey: "test-admin-key"},
+		},
 		Logger: &log,
 	}
-	return handler.NewRouter(s, middleware.NewMiddlewares(s), handler.NewPaymentHandler(nil, &log), handler.NewRefundHandler(nil, &log))
+	return handler.NewRouter(
+		s,
+		middleware.NewMiddlewares(s),
+		handler.NewPaymentHandler(nil, &log),
+		handler.NewRefundHandler(nil, &log),
+		handler.NewAdminMerchantHandler(nil, &log),
+		handler.NewMerchantHandler(nil, &log),
+	)
 }
 
 func TestHealth(t *testing.T) {

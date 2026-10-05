@@ -71,11 +71,7 @@ func main() {
 		srv.Logger,
 	)
 
-	mw := middleware.NewMiddlewares(srv)
-	payments := handler.NewPaymentHandler(service.NewPaymentService(repo), srv.Logger)
-	refunds := handler.NewRefundHandler(service.NewRefundService(repo), srv.Logger)
-	router := handler.NewRouter(srv, mw, payments, refunds)
-	srv.SetupHTTPServer(router)
+	mountHTTP(srv, repo)
 
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	payWorker.Start(workerCtx)
@@ -112,4 +108,17 @@ func main() {
 	if err := srv.CloseDB(); err != nil {
 		log.Error().Err(err).Msg("database close failed")
 	}
+}
+
+func mountHTTP(srv *server.Server, repo *repository.PaymentRepository) {
+	merchantSvc := service.NewMerchantService(repository.NewMerchantRepository(srv.DB.Pool))
+	router := handler.NewRouter(
+		srv,
+		middleware.NewMiddlewares(srv),
+		handler.NewPaymentHandler(service.NewPaymentService(repo), srv.Logger),
+		handler.NewRefundHandler(service.NewRefundService(repo), srv.Logger),
+		handler.NewAdminMerchantHandler(merchantSvc, srv.Logger),
+		handler.NewMerchantHandler(merchantSvc, srv.Logger),
+	)
+	srv.SetupHTTPServer(router)
 }

@@ -27,6 +27,7 @@ var (
 	ErrRefundNotFound       = errors.New("refund not found")
 	ErrIdempotencyKeyReused = errors.New("idempotency key reused with a different payload")
 	ErrRefundExceedsBalance = errors.New("refund exceeds remaining balance")
+	ErrDuplicateAPIKeyHash  = errors.New("duplicate api key hash")
 )
 
 // RemainingRefundable is captured amount minus succeeded refunds.
@@ -59,7 +60,7 @@ func NewPaymentRepository(pool *pgxpool.Pool) *PaymentRepository {
 // MerchantByPublicID loads a merchant by API-facing UUID.
 func (r *PaymentRepository) MerchantByPublicID(ctx context.Context, publicID uuid.UUID) (*model.DBMerchant, error) {
 	const q = `
-SELECT id, public_id, name, api_key_hash, created_at
+SELECT ` + merchantCols + `
 FROM merchants
 WHERE public_id = $1`
 
@@ -220,7 +221,7 @@ func (r *PaymentRepository) createPaymentOnce(
 // merchantByPublicIDTx is the same lookup inside an open txn.
 func merchantByPublicIDTx(ctx context.Context, tx pgx.Tx, publicID uuid.UUID) (*model.DBMerchant, error) {
 	const q = `
-SELECT id, public_id, name, api_key_hash, created_at
+SELECT ` + merchantCols + `
 FROM merchants
 WHERE public_id = $1`
 
@@ -354,14 +355,6 @@ WHERE id = $1`
 func isRetry(err error) bool {
 	var r retryError
 	return errors.As(err, &r)
-}
-
-func scanMerchant(row pgx.Row) (*model.DBMerchant, error) {
-	var m model.DBMerchant
-	if err := row.Scan(&m.ID, &m.PublicID, &m.Name, &m.APIKeyHash, &m.CreatedAt); err != nil {
-		return nil, err
-	}
-	return &m, nil
 }
 
 func scanPayment(row pgx.Row) (*model.DBPayment, error) {

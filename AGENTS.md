@@ -1,10 +1,10 @@
 # go-payment-simulator — agent context
 
 ## Goal
-Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`, `docs/api-db-design-payment-simulator.md`, and `docs/db-latest-design.md`.
+Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`, `docs/api-db-design-payment-simulator.md`, `docs/db-latest-design.md`, and `docs/api-db-new-changes.md` (merchant admin + webhook delivery contract).
 
 ## Phase
-**Capture, cancel, refunds (ARD days 8–9)** — capture/cancel/refund HTTP live; webhook delivery still deferred.
+**Pre-webhook: merchant schema + admin/self-service (Milestone 1)** — FR23–24, FR36, `webhook_url`/`webhook_secret` columns. Capture/cancel/refund HTTP remain live. Webhook **delivery** (days 10–11) is next; outbound shape is `docs/api-db-new-changes.md` §3.11 (not older ARD §3.8).
 
 ## Package map (actual vs doc)
 - HTTP: `internal/handler` + `internal/middleware` (doc: `internal/http`)
@@ -24,7 +24,7 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] `internal/errs`, `internal/sqlerr` (Postgres mapping)
 - [x] main wired to server
 - [x] docker-compose (Postgres only) + Dockerfile
-- [x] SQL migrations (`000001_init`, `000002` request_hash, `000003` idempotency scope + refund_id)
+- [x] SQL migrations (`000001_init`, `000002` request_hash, `000003` idempotency scope + refund_id, `000004` merchant webhook_url/secret)
 - [x] /v1/health
 - [x] Router stubs for /v1/payments, refunds (capture/cancel/refund implemented)
 - [x] .env.example ↔ PAYMENTS_ alignment (+ envKeyTransform in config)
@@ -40,13 +40,16 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] POST `/v1/payments/:id/capture` and `/cancel` with `FOR UPDATE` + `model.Transition`
 - [x] Authorize finalize abandons write when the row is no longer `PENDING` (cancel vs lease)
 - [x] POST `/v1/payments/:id/refund` + GET `/v1/refunds/:id` with `FOR UPDATE` balance math and scoped idempotency
+- [x] Merchant admin + self-service (FR23–24, FR35 rotate, FR36): `PAYMENTS_ADMIN_API_KEY`, `X-Admin-Key`, `POST/GET/PATCH /v1/admin/merchants`, `POST …/rotate-key`, `GET/PATCH /v1/merchant/me` (`X-Api-Key`); `api_key` + `webhook_secret` returned only on create (key also on rotate)
 
 ## In progress
 - (none)
 
 ## Explicitly deferred (do not implement yet)
-- Webhook workers, Prometheus `/metrics`
-- API-key auth (`api_key_hash` unused)
+- Webhook workers, outbox enqueue, HMAC signing, retries (FR19–20, FR25–26) — plan against `docs/api-db-new-changes.md` §3.11
+- Prometheus `/metrics`
+- API-key auth on payment/refund routes (still `X-Merchant-Id`)
+- `GET /v1/payments` list/cursor, `/healthz` vs `/readyz` split, validation `field` envelope (`api-db-new-changes` §3.8–3.10, §4)
 
 ## Commands
 - `task up` / `task down`
@@ -63,8 +66,8 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 ## Layers
 Client → Router → Middleware → Handler → Service → Repository → DB.
 
-- **Middleware:** cross-cutting only (request ID, tracing, recovery, access log, error envelope, `X-Merchant-Id`, `Idempotency-Key`). No business logic.
-- **Handler:** HTTP only — bind JSON, status codes (201 vs 200), map service errors to the error envelope, endpoint logs.
+- **Middleware:** cross-cutting only (request ID, tracing, recovery, access log, error envelope, `X-Merchant-Id`, `Idempotency-Key`, `X-Admin-Key`, `X-Api-Key`). No business logic.
+- **Handler:** HTTP only — bind JSON, status codes (201 vs 200), map service errors to the error envelope, endpoint logs. Never log `api_key` or `webhook_secret`.
 - **Service:** orchestration, hashing, state rules. No Gin, no HTTP DTOs, no `*errs.HTTPError`.
 - **Repository:** SQL / transactions. No HTTP types.
 - **Model:** `DB*` rows in `db_models.go`; API request/response in `service_*.go`; enums + `Transition` in `enum.go`.
@@ -79,5 +82,8 @@ Client → Router → Middleware → Handler → Service → Repository → DB.
 - Amounts: int64 minor units
 - Internal IDs: bigint; public IDs: UUID strings
 - API prefix: `/v1`
-- Idempotency: header `Idempotency-Key`, merchant `X-Merchant-Id`
-- Seed merchant public_id: `11111111-1111-1111-1111-111111111111`
+- Idempotency: header `Idempotency-Key`, merchant `X-Merchant-Id` (payments/refunds)
+- Admin: header `X-Admin-Key` = `PAYMENTS_ADMIN_API_KEY` (fail closed if unset)
+- Merchant self-service: header `X-Api-Key` (plaintext `sk_test_…`; store only `api_key_hash`)
+- Webhook outbound (not implemented): `X-Webhook-Signature`, `X-Webhook-Event-Id`, body `{id,type,created_at,data}` per `api-db-new-changes` §3.11
+- Integration seed merchant public_id: `11111111-1111-1111-1111-111111111111` (helper INSERT, not a migration)

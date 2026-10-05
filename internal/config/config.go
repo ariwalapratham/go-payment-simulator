@@ -15,6 +15,7 @@ type Config struct {
 	Primary       Primary              `koanf:"primary" validate:"required"`
 	Server        ServerConfig         `koanf:"server" validate:"required"`
 	Database      DatabaseConfig       `koanf:"database" validate:"required"`
+	Admin         AdminConfig          `koanf:"admin"`
 	Bank          BankConfig           `koanf:"bank"`
 	Worker        WorkerConfig         `koanf:"worker"`
 	Observability *ObservabilityConfig `koanf:"observability"`
@@ -22,6 +23,12 @@ type Config struct {
 
 type Primary struct {
 	Env string `koanf:"env" validate:"required"`
+}
+
+// AdminConfig is the shared operator secret for /v1/admin routes (PAYMENTS_ADMIN_API_KEY).
+// Empty at startup is allowed; AdminAuth then rejects every request.
+type AdminConfig struct {
+	APIKey string `koanf:"api_key"`
 }
 
 type ServerConfig struct {
@@ -102,7 +109,7 @@ func LoadConfig() (*Config, error) {
 func envKeyTransform(raw string) string {
 	key := strings.ToLower(strings.TrimPrefix(raw, "PAYMENTS_"))
 
-	for _, root := range []string{"primary", "server", "database"} {
+	for _, root := range []string{"primary", "server", "database", "admin"} {
 		prefix := root + "_"
 		if strings.HasPrefix(key, prefix) {
 			return root + "." + strings.TrimPrefix(key, prefix)

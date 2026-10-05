@@ -22,6 +22,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const testAdminAPIKey = "test-admin-key"
+
 func requireDB(t *testing.T) {
 	t.Helper()
 	if testPool == nil || testCfg == nil {
@@ -40,8 +42,8 @@ RESTART IDENTITY CASCADE`)
 		t.Fatalf("truncate: %v", err)
 	}
 	_, err = testPool.Exec(ctx, `
-INSERT INTO merchants (public_id, name, api_key_hash)
-VALUES ($1, 'dev-merchant', 'dev-seed-hash')`, model.SeedMerchantPublicID)
+INSERT INTO merchants (public_id, name, api_key_hash, webhook_secret)
+VALUES ($1, 'dev-merchant', 'dev-seed-hash', 'dev-webhook-secret')`, model.SeedMerchantPublicID)
 	if err != nil {
 		t.Fatalf("seed merchant: %v", err)
 	}
@@ -52,14 +54,21 @@ func testRouter(t *testing.T) *gin.Engine {
 	requireDB(t)
 	gin.SetMode(gin.TestMode)
 	log := zerolog.Nop()
+	cfg := *testCfg
+	if cfg.Admin.APIKey == "" {
+		cfg.Admin.APIKey = testAdminAPIKey
+	}
 	s := &server.Server{
-		Config: testCfg,
+		Config: &cfg,
 		Logger: &log,
 	}
 	repo := repository.NewPaymentRepository(testPool)
+	merchantSvc := service.NewMerchantService(repository.NewMerchantRepository(testPool))
 	payments := handler.NewPaymentHandler(service.NewPaymentService(repo), &log)
 	refunds := handler.NewRefundHandler(service.NewRefundService(repo), &log)
-	return handler.NewRouter(s, middleware.NewMiddlewares(s), payments, refunds)
+	admin := handler.NewAdminMerchantHandler(merchantSvc, &log)
+	merchants := handler.NewMerchantHandler(merchantSvc, &log)
+	return handler.NewRouter(s, middleware.NewMiddlewares(s), payments, refunds, admin, merchants)
 }
 
 func postPayment(t *testing.T, r *gin.Engine, merchantID, idempotencyKey, body string) *httptest.ResponseRecorder {

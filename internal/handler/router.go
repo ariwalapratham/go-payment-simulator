@@ -9,7 +9,14 @@ import (
 )
 
 // NewRouter mounts /v1 routes and the shared middleware chain.
-func NewRouter(s *server.Server, mw *middleware.Middlewares, payments *PaymentHandler, refunds *RefundHandler) *gin.Engine {
+func NewRouter(
+	s *server.Server,
+	mw *middleware.Middlewares,
+	payments *PaymentHandler,
+	refunds *RefundHandler,
+	admin *AdminMerchantHandler,
+	merchants *MerchantHandler,
+) *gin.Engine {
 	if s.Config.Primary.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -26,6 +33,8 @@ func NewRouter(s *server.Server, mw *middleware.Middlewares, payments *PaymentHa
 
 	v1 := r.Group("/v1")
 	v1.GET("/health", health)
+	registerAdminMerchantRoutes(v1, mw, admin)
+	registerMerchantMeRoutes(v1, merchants)
 	registerPaymentRoutes(v1, mw, payments, refunds)
 	registerRefundRoutes(v1, mw, refunds)
 
