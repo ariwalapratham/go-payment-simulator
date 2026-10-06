@@ -46,6 +46,7 @@ type CreatePaymentInput struct {
 type PaymentRecord struct {
 	Payment          model.DBPayment
 	MerchantPublicID uuid.UUID
+	WebhookURL       *string
 }
 
 type PaymentRepository struct {
@@ -83,7 +84,7 @@ func (r *PaymentRepository) GetPaymentByPublicID(
 	const q = `
 SELECT p.id, p.public_id, p.merchant_id, p.amount, p.currency, p.status,
        p.attempt_count, p.next_attempt_at, p.last_error, p.created_at, p.updated_at,
-       m.public_id
+       m.public_id, m.webhook_url
 FROM payments p
 JOIN merchants m ON m.id = p.merchant_id
 WHERE p.public_id = $1 AND m.public_id = $2`
@@ -115,7 +116,7 @@ func (r *PaymentRepository) TransitionPayment(
 	const lockQ = `
 SELECT p.id, p.public_id, p.merchant_id, p.amount, p.currency, p.status,
        p.attempt_count, p.next_attempt_at, p.last_error, p.created_at, p.updated_at,
-       m.public_id
+       m.public_id, m.webhook_url
 FROM payments p
 JOIN merchants m ON m.id = p.merchant_id
 WHERE p.public_id = $1 AND m.public_id = $2
@@ -147,6 +148,20 @@ RETURNING id, public_id, merchant_id, amount, currency, status,
 		return nil, fmt.Errorf("transition payment: %w", err)
 	}
 	rec.Payment = *p
+	if eventType, ok := webhookEventForPaymentStatus(next); ok {
+		if err := EnqueueWebhookIfConfigured(ctx, tx, WebhookEnqueueParams{
+			MerchantID:      rec.Payment.MerchantID,
+			PaymentID:       rec.Payment.ID,
+			PaymentPublicID: rec.Payment.PublicID,
+			EventType:       eventType,
+			Status:          next,
+			Amount:          rec.Payment.Amount,
+			Currency:        rec.Payment.Currency,
+			WebhookURL:      rec.WebhookURL,
+		}); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit transition payment: %w", err)
 	}
@@ -374,7 +389,7 @@ func scanPaymentRecord(row pgx.Row) (*PaymentRecord, error) {
 	if err := row.Scan(
 		&p.ID, &p.PublicID, &p.MerchantID, &p.Amount, &p.Currency, &p.Status,
 		&p.AttemptCount, &p.NextAttemptAt, &p.LastError, &p.CreatedAt, &p.UpdatedAt,
-		&rec.MerchantPublicID,
+		&rec.MerchantPublicID, &rec.WebhookURL,
 	); err != nil {
 		return nil, err
 	}

@@ -4,14 +4,15 @@
 Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`, `docs/api-db-design-payment-simulator.md`, `docs/db-latest-design.md`, and `docs/api-db-new-changes.md` (merchant admin + webhook delivery contract).
 
 ## Phase
-**Pre-webhook: merchant schema + admin/self-service (Milestone 1)** — FR23–24, FR36, `webhook_url`/`webhook_secret` columns. Capture/cancel/refund HTTP remain live. Webhook **delivery** (days 10–11) is next; outbound shape is `docs/api-db-new-changes.md` §3.11 (not older ARD §3.8).
+**Webhook delivery (Day 10 in progress)** — outbox enqueue on authorize/capture/refund, §3.11 payload + HMAC, webhook worker happy path. Day 11: retry/backoff exhaustion, duplicate-event tests. Outbound shape: `docs/api-db-new-changes.md` §3.11 (not older ARD §3.8).
 
 ## Package map (actual vs doc)
 - HTTP: `internal/handler` + `internal/middleware` (doc: `internal/http`)
 - Shared DB shapes + enums: `internal/model` — `DB*` rows in `db_models.go`, API DTOs in `service_*.go`, enums + `Transition` in `enum.go`
 - Domain/services: `internal/service` (doc: `internal/payment`, `internal/refund`, `internal/idempotency`)
 - Data: `internal/repository` (doc: sqlc/sqlx TBD)
-- Workers: `internal/worker` (payment pool started; webhook not started)
+- Workers: `internal/worker` (payment + webhook pools)
+- Webhook: `internal/webhook` (payload §3.11, HMAC signer)
 - Bank: `internal/bank` (`Gateway` + in-process `Simulator`; `bank.NewGateway`)
 - Observability: `internal/observability` (`worker_id` context, `AuthorizeMetrics`)
 - DB/migrate: `internal/database`, `migrations/` (embedded SQL)
@@ -41,12 +42,13 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] Authorize finalize abandons write when the row is no longer `PENDING` (cancel vs lease)
 - [x] POST `/v1/payments/:id/refund` + GET `/v1/refunds/:id` with `FOR UPDATE` balance math and scoped idempotency
 - [x] Merchant admin + self-service (FR23–24, FR35 rotate, FR36): `PAYMENTS_ADMIN_API_KEY`, `X-Admin-Key`, `POST/GET/PATCH /v1/admin/merchants`, `POST …/rotate-key`, `GET/PATCH /v1/merchant/me` (`X-Api-Key`); `api_key` + `webhook_secret` returned only on create (key also on rotate)
+- [x] Webhook outbox (FR18, FR25–26): enqueue in authorize/capture/refund txns when `webhook_url` set; `internal/webhook` signer + §3.11 body; `WebhookWorker` POST → `DELIVERED` on 2xx; `PAYMENTS_WEBHOOK_*` config
 
 ## In progress
-- (none)
+- Day 11 webhook reliability (FR19–20): backoff, max attempts, `FAILED`, duplicate redelivery tests
 
 ## Explicitly deferred (do not implement yet)
-- Webhook workers, outbox enqueue, HMAC signing, retries (FR19–20, FR25–26) — plan against `docs/api-db-new-changes.md` §3.11
+- Webhook retry/backoff to terminal FAILED (partial: non-2xx logs + lease only)
 - Prometheus `/metrics`
 - API-key auth on payment/refund routes (still `X-Merchant-Id`)
 - `GET /v1/payments` list/cursor, `/healthz` vs `/readyz` split, validation `field` envelope (`api-db-new-changes` §3.8–3.10, §4)
@@ -85,5 +87,5 @@ Client → Router → Middleware → Handler → Service → Repository → DB.
 - Idempotency: header `Idempotency-Key`, merchant `X-Merchant-Id` (payments/refunds)
 - Admin: header `X-Admin-Key` = `PAYMENTS_ADMIN_API_KEY` (fail closed if unset)
 - Merchant self-service: header `X-Api-Key` (plaintext `sk_test_…`; store only `api_key_hash`)
-- Webhook outbound (not implemented): `X-Webhook-Signature`, `X-Webhook-Event-Id`, body `{id,type,created_at,data}` per `api-db-new-changes` §3.11
+- Webhook outbound: `X-Webhook-Signature`, `X-Webhook-Event-Id`, body `{id,type,created_at,data}` per `api-db-new-changes` §3.11
 - Integration seed merchant public_id: `11111111-1111-1111-1111-111111111111` (helper INSERT, not a migration)

@@ -71,10 +71,28 @@ func main() {
 		srv.Logger,
 	)
 
+	webhookProc, err := service.NewWebhookProcessor(
+		repo,
+		time.Duration(cfg.Webhook.CallTimeoutSec)*time.Second,
+		time.Duration(cfg.Webhook.LeaseSeconds)*time.Second,
+		srv.Logger,
+		nil,
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("webhook processor failed")
+	}
+	webhookWorker := worker.NewWebhookWorker(
+		webhookProc,
+		cfg.Webhook.PoolSize,
+		time.Duration(cfg.Webhook.PollIntervalMS)*time.Millisecond,
+		srv.Logger,
+	)
+
 	mountHTTP(srv, repo)
 
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	payWorker.Start(workerCtx)
+	webhookWorker.Start(workerCtx)
 
 	go func() {
 		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -97,6 +115,7 @@ func main() {
 	done := make(chan struct{})
 	go func() {
 		payWorker.Wait()
+		webhookWorker.Wait()
 		close(done)
 	}()
 	select {

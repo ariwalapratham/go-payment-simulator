@@ -67,7 +67,7 @@ FROM next n, merchants m
 WHERE p.id = n.id AND m.id = p.merchant_id
 RETURNING p.id, p.public_id, p.merchant_id, p.amount, p.currency, p.status,
           p.attempt_count, p.next_attempt_at, p.last_error, p.created_at, p.updated_at,
-          m.public_id`
+          m.public_id, m.webhook_url`
 
 	rec, err := scanPaymentRecord(r.pool.QueryRow(ctx, q, leaseMS))
 	if err != nil {
@@ -88,13 +88,16 @@ func (r *PaymentRepository) ApplyAuthorizeDecision(ctx context.Context, in Apply
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	const lockQ = `
-SELECT id, public_id, merchant_id, amount, currency, status,
-       attempt_count, next_attempt_at, last_error, created_at, updated_at
-FROM payments
-WHERE id = $1
-FOR UPDATE`
+SELECT p.id, p.public_id, p.merchant_id, p.amount, p.currency, p.status,
+       p.attempt_count, p.next_attempt_at, p.last_error, p.created_at, p.updated_at,
+       m.webhook_url
+FROM payments p
+JOIN merchants m ON m.id = p.merchant_id
+WHERE p.id = $1
+FOR UPDATE OF p`
 
-	p, err := scanPayment(tx.QueryRow(ctx, lockQ, in.PaymentID))
+	var webhookURL *string
+	p, err := scanPaymentForWebhook(tx.QueryRow(ctx, lockQ, in.PaymentID), &webhookURL)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrPaymentNotFound
@@ -126,8 +129,49 @@ WHERE id = $1 AND status = $6 AND attempt_count = $7`
 	if tag.RowsAffected() == 0 {
 		return LostLeaseError{Status: p.Status}
 	}
+	if eventType, ok := webhookEventForPaymentStatus(in.Status); ok {
+		if err := EnqueueWebhookIfConfigured(ctx, tx, WebhookEnqueueParams{
+			MerchantID:      p.MerchantID,
+			PaymentID:       p.ID,
+			PaymentPublicID: p.PublicID,
+			EventType:       eventType,
+			Status:          in.Status,
+			Amount:          p.Amount,
+			Currency:        p.Currency,
+			WebhookURL:      webhookURL,
+		}); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit apply authorize: %w", err)
 	}
 	return nil
+}
+
+func webhookEventForPaymentStatus(status model.PaymentStatus) (model.WebhookEventType, bool) {
+	switch status {
+	case model.PaymentStatusAuthorized:
+		return model.WebhookEventPaymentAuthorized, true
+	case model.PaymentStatusFailed:
+		return model.WebhookEventPaymentFailed, true
+	case model.PaymentStatusCaptured:
+		return model.WebhookEventPaymentCaptured, true
+	case model.PaymentStatusRefunded:
+		return model.WebhookEventPaymentRefunded, true
+	default:
+		return "", false
+	}
+}
+
+func scanPaymentForWebhook(row pgx.Row, webhookURL **string) (*model.DBPayment, error) {
+	var p model.DBPayment
+	if err := row.Scan(
+		&p.ID, &p.PublicID, &p.MerchantID, &p.Amount, &p.Currency, &p.Status,
+		&p.AttemptCount, &p.NextAttemptAt, &p.LastError, &p.CreatedAt, &p.UpdatedAt,
+		webhookURL,
+	); err != nil {
+		return nil, err
+	}
+	return &p, nil
 }

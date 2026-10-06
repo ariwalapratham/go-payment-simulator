@@ -124,7 +124,7 @@ func insertSucceededRefund(
 	const lockQ = `
 SELECT p.id, p.public_id, p.merchant_id, p.amount, p.currency, p.status,
        p.attempt_count, p.next_attempt_at, p.last_error, p.created_at, p.updated_at,
-       m.public_id
+       m.public_id, m.webhook_url
 FROM payments p
 JOIN merchants m ON m.id = p.merchant_id
 WHERE p.public_id = $1 AND m.public_id = $2
@@ -175,6 +175,21 @@ WHERE id = $1 AND status = $3`
 		if tag.RowsAffected() == 0 {
 			return nil, fmt.Errorf("%w: %s -> %s", model.ErrInvalidTransition, pay.Payment.Status, model.PaymentStatusRefunded)
 		}
+		pay.Payment.Status = model.PaymentStatusRefunded
+	}
+
+	finalStatus := pay.Payment.Status
+	if err := EnqueueWebhookIfConfigured(ctx, tx, WebhookEnqueueParams{
+		MerchantID:      pay.Payment.MerchantID,
+		PaymentID:       pay.Payment.ID,
+		PaymentPublicID: pay.Payment.PublicID,
+		EventType:       model.WebhookEventPaymentRefunded,
+		Status:          finalStatus,
+		Amount:          pay.Payment.Amount,
+		Currency:        pay.Payment.Currency,
+		WebhookURL:      pay.WebhookURL,
+	}); err != nil {
+		return nil, err
 	}
 
 	return &RefundRecord{
