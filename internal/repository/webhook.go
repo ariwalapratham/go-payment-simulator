@@ -97,14 +97,22 @@ WITH next AS (
 UPDATE webhook_deliveries d
 SET next_attempt_at = now() + ($1 * interval '1 millisecond'),
     updated_at = now()
-FROM next n
+FROM next n, webhook_events e, payments p, merchants m
 WHERE d.id = n.id
-RETURNING d.id, d.webhook_event_id, d.attempt_count`
+  AND d.status = $2
+  AND e.id = d.webhook_event_id
+  AND p.id = e.payment_id
+  AND m.id = p.merchant_id
+RETURNING d.id, d.attempt_count,
+          e.id, e.public_id, e.payment_id, e.type, e.payload, e.created_at,
+          m.webhook_url, m.webhook_secret`
 
-	var delID, eventID int64
-	var attemptCount int
+	var job WebhookDeliveryJob
+	var url *string
 	err := r.pool.QueryRow(ctx, q, leaseMS, model.WebhookDeliveryStatusPending.String()).Scan(
-		&delID, &eventID, &attemptCount,
+		&job.DeliveryID, &job.AttemptCount,
+		&job.Event.ID, &job.Event.PublicID, &job.Event.PaymentID, &job.Event.Type, &job.Event.Payload, &job.Event.CreatedAt,
+		&url, &job.TargetSecret,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -112,43 +120,17 @@ RETURNING d.id, d.webhook_event_id, d.attempt_count`
 		}
 		return nil, fmt.Errorf("claim webhook delivery: %w", err)
 	}
-
-	const load = `
-SELECT e.id, e.public_id, e.payment_id, e.type, e.payload, e.created_at,
-       m.webhook_url, m.webhook_secret
-FROM webhook_events e
-JOIN payments p ON p.id = e.payment_id
-JOIN merchants m ON m.id = p.merchant_id
-WHERE e.id = $1`
-
-	var ev model.DBWebhookEvent
-	var url *string
-	var secret string
-	if err := r.pool.QueryRow(ctx, load, eventID).Scan(
-		&ev.ID, &ev.PublicID, &ev.PaymentID, &ev.Type, &ev.Payload, &ev.CreatedAt,
-		&url, &secret,
-	); err != nil {
-		return nil, fmt.Errorf("load webhook event for delivery: %w", err)
-	}
-
-	target := ""
 	if url != nil {
-		target = strings.TrimSpace(*url)
+		job.TargetURL = strings.TrimSpace(*url)
 	}
-	return &WebhookDeliveryJob{
-		DeliveryID:   delID,
-		AttemptCount: attemptCount,
-		Event:        ev,
-		TargetURL:    target,
-		TargetSecret: secret,
-	}, nil
+	return &job, nil
 }
 
 // MarkWebhookDelivered sets status DELIVERED after a successful HTTP POST.
 func (r *PaymentRepository) MarkWebhookDelivered(ctx context.Context, deliveryID int64) error {
 	const q = `
 UPDATE webhook_deliveries
-SET status = $2, updated_at = now(), last_error = NULL
+SET status = $2, attempt_count = attempt_count + 1, updated_at = now(), last_error = NULL
 WHERE id = $1 AND status = $3`
 
 	tag, err := r.pool.Exec(ctx, q, deliveryID, model.WebhookDeliveryStatusDelivered.String(), model.WebhookDeliveryStatusPending.String())
@@ -161,8 +143,8 @@ WHERE id = $1 AND status = $3`
 	return nil
 }
 
-// RecordWebhookFailure increments attempts and either schedules another try or marks FAILED.
-func (r *PaymentRepository) RecordWebhookFailure(ctx context.Context, deliveryID int64, lastError string, failed bool) error {
+// RecordWebhookFailure increments attempts, writes last_error, and sets next_attempt_at or FAILED.
+func (r *PaymentRepository) RecordWebhookFailure(ctx context.Context, deliveryID int64, lastError string, nextAttemptAt time.Time, failed bool) error {
 	if len(lastError) > maxWebhookLastError {
 		lastError = lastError[:maxWebhookLastError]
 	}
@@ -172,10 +154,10 @@ func (r *PaymentRepository) RecordWebhookFailure(ctx context.Context, deliveryID
 	}
 	const q = `
 UPDATE webhook_deliveries
-SET status = $2, attempt_count = attempt_count + 1, last_error = $3, updated_at = now()
-WHERE id = $1 AND status = $4`
+SET status = $2, attempt_count = attempt_count + 1, last_error = $3, next_attempt_at = $4, updated_at = now()
+WHERE id = $1 AND status = $5`
 
-	tag, err := r.pool.Exec(ctx, q, deliveryID, status.String(), lastError, model.WebhookDeliveryStatusPending.String())
+	tag, err := r.pool.Exec(ctx, q, deliveryID, status.String(), lastError, nextAttemptAt, model.WebhookDeliveryStatusPending.String())
 	if err != nil {
 		return fmt.Errorf("record webhook failure: %w", err)
 	}

@@ -4,7 +4,7 @@
 Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`, `docs/api-db-design-payment-simulator.md`, `docs/db-latest-design.md`, and `docs/api-db-new-changes.md` (merchant admin + webhook delivery contract).
 
 ## Phase
-**Webhook delivery (Day 10 in progress)** — outbox enqueue on authorize/capture/refund, §3.11 payload + HMAC, webhook worker happy path. Day 11: retry/backoff exhaustion, duplicate-event tests. Outbound shape: `docs/api-db-new-changes.md` §3.11 (not older ARD §3.8).
+**Webhook delivery + reliability complete** — outbox, §3.11 HMAC POST, retry/backoff, terminal `FAILED`. Outbound shape: `docs/api-db-new-changes.md` §3.11 (not older ARD §3.8).
 
 ## Package map (actual vs doc)
 - HTTP: `internal/handler` + `internal/middleware` (doc: `internal/http`)
@@ -43,12 +43,12 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] POST `/v1/payments/:id/refund` + GET `/v1/refunds/:id` with `FOR UPDATE` balance math and scoped idempotency
 - [x] Merchant admin + self-service (FR23–24, FR35 rotate, FR36): `PAYMENTS_ADMIN_API_KEY`, `X-Admin-Key`, `POST/GET/PATCH /v1/admin/merchants`, `POST …/rotate-key`, `GET/PATCH /v1/merchant/me` (`X-Api-Key`); `api_key` + `webhook_secret` returned only on create (key also on rotate)
 - [x] Webhook outbox (FR18, FR25–26): enqueue in authorize/capture/refund txns when `webhook_url` set; `internal/webhook` signer + §3.11 body; `WebhookWorker` POST → `DELIVERED` on 2xx; `PAYMENTS_WEBHOOK_*` config
+- [x] Webhook reliability (FR19–20): exponential backoff, max attempts, terminal `FAILED`; redelivery keeps the same `X-Webhook-Event-Id`
 
 ## In progress
-- Day 11 webhook reliability (FR19–20): backoff, max attempts, `FAILED`, duplicate redelivery tests
+- (none)
 
 ## Explicitly deferred (do not implement yet)
-- Webhook retry/backoff to terminal FAILED (partial: non-2xx logs + lease only)
 - Prometheus `/metrics`
 - API-key auth on payment/refund routes (still `X-Merchant-Id`)
 - `GET /v1/payments` list/cursor, `/healthz` vs `/readyz` split, validation `field` envelope (`api-db-new-changes` §3.8–3.10, §4)

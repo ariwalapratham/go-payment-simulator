@@ -257,6 +257,9 @@ func parseWebhookURL(raw *string) (string, error) {
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return "", ErrInvalidWebhookURL
 	}
+	if parsed.User != nil {
+		return "", ErrInvalidWebhookURL
+	}
 	if webhookHostForbidden(parsed.Hostname()) {
 		return "", ErrInvalidWebhookURL
 	}

@@ -172,6 +172,7 @@ func TestCreateMerchantRejectsPrivateWebhookHosts(t *testing.T) {
 		"http://10.0.0.1/hooks",
 		"http://169.254.169.254/latest",
 		"http://[::1]/hooks",
+		"https://user:pass@example.com/hooks",
 	} {
 		u := raw
 		_, err := svc.Create(context.Background(), "Acme", &u)

@@ -22,8 +22,9 @@ import (
 )
 
 type webhookCapture struct {
-	mu     sync.Mutex
-	events []receivedWebhook
+	mu       sync.Mutex
+	events   []receivedWebhook
+	failLeft int
 }
 
 type receivedWebhook struct {
@@ -51,13 +52,18 @@ func (c *webhookCapture) handler(secret string) http.HandlerFunc {
 		}
 		_ = json.Unmarshal(body, &doc)
 		c.mu.Lock()
+		defer c.mu.Unlock()
 		c.events = append(c.events, receivedWebhook{
 			EventID:   eventID,
 			Type:      doc.Type,
 			Body:      body,
 			Signature: sig,
 		})
-		c.mu.Unlock()
+		if c.failLeft > 0 {
+			c.failLeft--
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	}
 }
@@ -80,6 +86,42 @@ func (c *webhookCapture) waitForType(t *testing.T, want string, timeout time.Dur
 	return receivedWebhook{}
 }
 
+func (c *webhookCapture) waitForCount(t *testing.T, n int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		c.mu.Lock()
+		got := len(c.events)
+		c.mu.Unlock()
+		if got >= n {
+			return
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatalf("got %d events want %d", len(c.snapshot()), n)
+}
+
+func (c *webhookCapture) eventIDs(t *testing.T, wantType string) []string {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ids := make([]string, 0, len(c.events))
+	for _, ev := range c.events {
+		if ev.Type == wantType {
+			ids = append(ids, ev.EventID)
+		}
+	}
+	return ids
+}
+
+func (c *webhookCapture) snapshot() []receivedWebhook {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]receivedWebhook, len(c.events))
+	copy(out, c.events)
+	return out
+}
+
 func setMerchantWebhookURL(t *testing.T, url string) {
 	t.Helper()
 	tag, err := testPool.Exec(context.Background(),
@@ -93,12 +135,12 @@ func setMerchantWebhookURL(t *testing.T, url string) {
 	}
 }
 
-func startWebhookWorker(t *testing.T) {
+func startWebhookWorker(t *testing.T, retry service.RetryConfig) {
 	t.Helper()
 	requireDB(t)
 	log := zerolog.Nop()
 	repo := repository.NewPaymentRepository(testPool)
-	proc, err := service.NewWebhookProcessor(repo, time.Second, 5*time.Second, &log, nil)
+	proc, err := service.NewWebhookProcessor(repo, retry, time.Second, 2*time.Second, &log, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +151,36 @@ func startWebhookWorker(t *testing.T) {
 		cancel()
 		w.Wait()
 	})
+}
+
+func webhookRetry(maxAttempts int) service.RetryConfig {
+	return service.RetryConfig{
+		MaxAttempts: maxAttempts,
+		BaseDelay:   10 * time.Millisecond,
+		MaxDelay:    50 * time.Millisecond,
+		Jitter:      0,
+	}
+}
+
+func waitDelivery(t *testing.T, paymentID, eventType, want string) int {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	var status string
+	var attempts int
+	for time.Now().Before(deadline) {
+		err := testPool.QueryRow(context.Background(), `
+SELECT d.status, d.attempt_count
+FROM webhook_deliveries d
+JOIN webhook_events e ON e.id = d.webhook_event_id
+JOIN payments p ON p.id = e.payment_id
+WHERE p.public_id = $1 AND e.type = $2`, paymentID, eventType).Scan(&status, &attempts)
+		if err == nil && status == want {
+			return attempts
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatalf("delivery status=%s want %s", status, want)
+	return 0
 }
 
 func TestWebhookAuthorizedAndCaptured(t *testing.T) {
@@ -124,7 +196,7 @@ func TestWebhookAuthorizedAndCaptured(t *testing.T) {
 		t.Fatal(err)
 	}
 	startAuthorizeWorker(t, gw, fastRetry())
-	startWebhookWorker(t)
+	startWebhookWorker(t, webhookRetry(5))
 	r := testRouter(t)
 
 	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
@@ -179,7 +251,7 @@ func TestWebhookRefunded(t *testing.T) {
 		t.Fatal(err)
 	}
 	startAuthorizeWorker(t, gw, fastRetry())
-	startWebhookWorker(t)
+	startWebhookWorker(t, webhookRetry(5))
 	r := testRouter(t)
 
 	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
@@ -222,7 +294,7 @@ func TestWebhookSkippedWithoutURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	startAuthorizeWorker(t, gw, fastRetry())
-	startWebhookWorker(t)
+	startWebhookWorker(t, webhookRetry(5))
 	r := testRouter(t)
 
 	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(1000, "USD"))
@@ -238,5 +310,71 @@ func TestWebhookSkippedWithoutURL(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("expected no webhook events, got %d", n)
+	}
+}
+
+func TestWebhookRetryThenDelivered(t *testing.T) {
+	resetDB(t)
+	const secret = "dev-webhook-secret"
+	cap := &webhookCapture{failLeft: 2}
+	srv := httptest.NewServer(cap.handler(secret))
+	defer srv.Close()
+	setMerchantWebhookURL(t, srv.URL)
+
+	gw, err := bank.NewSimulator(bank.SimulatorConfig{SuccessPct: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startAuthorizeWorker(t, gw, fastRetry())
+	startWebhookWorker(t, webhookRetry(5))
+	r := testRouter(t)
+
+	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	paymentID, _ := decodePayment(t, rec)["id"].(string)
+	waitPaymentStatus(t, r, paymentID, "AUTHORIZED")
+
+	cap.waitForCount(t, 3, 3*time.Second)
+	attempts := waitDelivery(t, paymentID, "payment.authorized", "DELIVERED")
+	if attempts != 3 {
+		t.Fatalf("attempt_count=%d want 3", attempts)
+	}
+	ids := cap.eventIDs(t, "payment.authorized")
+	if len(ids) != 3 || ids[0] == "" || ids[0] != ids[1] || ids[1] != ids[2] {
+		t.Fatalf("event ids: %v", ids)
+	}
+}
+
+func TestWebhookRetryExhausted(t *testing.T) {
+	resetDB(t)
+	const secret = "dev-webhook-secret"
+	cap := &webhookCapture{failLeft: 100}
+	srv := httptest.NewServer(cap.handler(secret))
+	defer srv.Close()
+	setMerchantWebhookURL(t, srv.URL)
+
+	gw, err := bank.NewSimulator(bank.SimulatorConfig{SuccessPct: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startAuthorizeWorker(t, gw, fastRetry())
+	startWebhookWorker(t, webhookRetry(3))
+	r := testRouter(t)
+
+	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	paymentID, _ := decodePayment(t, rec)["id"].(string)
+	waitPaymentStatus(t, r, paymentID, "AUTHORIZED")
+
+	attempts := waitDelivery(t, paymentID, "payment.authorized", "FAILED")
+	if attempts != 3 {
+		t.Fatalf("attempt_count=%d want 3", attempts)
+	}
+	if got := getPayment(t, r, seedMerchantID(), paymentID); decodePayment(t, got)["status"] != "AUTHORIZED" {
+		t.Fatalf("payment status: %v", decodePayment(t, got))
 	}
 }

@@ -15,15 +15,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const maxWebhookAttempts = 5
-
 // ErrNoWebhookJob means the webhook worker should idle until the next poll.
 var ErrNoWebhookJob = repository.ErrNoWebhookJob
 
 type webhookStore interface {
 	ClaimDueWebhookDelivery(ctx context.Context, lease time.Duration) (*repository.WebhookDeliveryJob, error)
 	MarkWebhookDelivered(ctx context.Context, deliveryID int64) error
-	RecordWebhookFailure(ctx context.Context, deliveryID int64, lastError string, failed bool) error
+	RecordWebhookFailure(ctx context.Context, deliveryID int64, lastError string, nextAttemptAt time.Time, failed bool) error
 	ReleaseWebhookDeliveryLease(ctx context.Context, deliveryID int64) error
 }
 
@@ -31,20 +29,26 @@ type webhookStore interface {
 type WebhookProcessor struct {
 	store       webhookStore
 	httpClient  *http.Client
+	retry       RetryConfig
 	lease       time.Duration
 	callTimeout time.Duration
 	log         zerolog.Logger
+	now         func() time.Time
 }
 
 // NewWebhookProcessor wires outbound delivery. httpClient may be nil (default with callTimeout).
 func NewWebhookProcessor(
 	store webhookStore,
+	retry RetryConfig,
 	callTimeout, lease time.Duration,
 	log *zerolog.Logger,
 	httpClient *http.Client,
 ) (*WebhookProcessor, error) {
 	if store == nil {
 		return nil, fmt.Errorf("webhook processor: store is required")
+	}
+	if err := retry.Validate(); err != nil {
+		return nil, fmt.Errorf("webhook processor: %w", err)
 	}
 	if callTimeout <= 0 {
 		return nil, fmt.Errorf("webhook processor: call timeout must be > 0")
@@ -63,9 +67,11 @@ func NewWebhookProcessor(
 	p := &WebhookProcessor{
 		store:       store,
 		httpClient:  httpClient,
+		retry:       retry,
 		lease:       lease,
 		callTimeout: callTimeout,
 		log:         zerolog.Nop(),
+		now:         time.Now,
 	}
 	if log != nil {
 		p.log = *log
@@ -103,7 +109,7 @@ func (p *WebhookProcessor) deliver(ctx context.Context, job *repository.WebhookD
 
 	req, err := http.NewRequestWithContext(callCtx, http.MethodPost, job.TargetURL, bytes.NewReader(body))
 	if err != nil {
-		return p.persistFailure(ctx, job, fmt.Sprintf("build request: %s", err.Error()))
+		return p.persistFailure(ctx, job, "build request")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Webhook-Signature", signature)
@@ -114,7 +120,7 @@ func (p *WebhookProcessor) deliver(ctx context.Context, job *repository.WebhookD
 		if ctx.Err() != nil {
 			return p.releaseLease(job, ctx.Err())
 		}
-		return p.persistFailure(ctx, job, err.Error())
+		return p.persistFailure(ctx, job, "http client error")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
@@ -145,10 +151,14 @@ func (p *WebhookProcessor) persistDelivered(ctx context.Context, job *repository
 
 func (p *WebhookProcessor) persistFailure(ctx context.Context, job *repository.WebhookDeliveryJob, lastError string) error {
 	next := job.AttemptCount + 1
-	failed := next >= maxWebhookAttempts
+	failed := next >= p.retry.MaxAttempts
+	nextAt := p.now()
+	if !failed {
+		nextAt = nextAt.Add(backoff(job.AttemptCount, p.retry))
+	}
 	dbCtx, cancel := context.WithTimeout(context.Background(), persistTimeout)
 	defer cancel()
-	if err := p.store.RecordWebhookFailure(dbCtx, job.DeliveryID, lastError, failed); err != nil {
+	if err := p.store.RecordWebhookFailure(dbCtx, job.DeliveryID, lastError, nextAt, failed); err != nil {
 		return fmt.Errorf("record webhook failure %s: %w", job.Event.PublicID, err)
 	}
 	e := p.log.Warn().

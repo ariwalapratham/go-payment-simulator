@@ -73,6 +73,12 @@ func main() {
 
 	webhookProc, err := service.NewWebhookProcessor(
 		repo,
+		service.RetryConfig{
+			MaxAttempts: cfg.Webhook.MaxAttempts,
+			BaseDelay:   time.Duration(cfg.Webhook.BaseDelayMS) * time.Millisecond,
+			MaxDelay:    time.Duration(cfg.Webhook.MaxDelayMS) * time.Millisecond,
+			Jitter:      cfg.Webhook.RetryJitter(),
+		},
 		time.Duration(cfg.Webhook.CallTimeoutSec)*time.Second,
 		time.Duration(cfg.Webhook.LeaseSeconds)*time.Second,
 		srv.Logger,
