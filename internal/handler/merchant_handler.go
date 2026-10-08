@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/ariwalapratham/go-payment-simulator/internal/errs"
@@ -9,7 +8,6 @@ import (
 	"github.com/ariwalapratham/go-payment-simulator/internal/model"
 	"github.com/ariwalapratham/go-payment-simulator/internal/service"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
@@ -80,23 +78,16 @@ func (h *MerchantHandler) PatchMe(c *gin.Context) {
 	c.JSON(http.StatusOK, toMerchantResponse(merchant))
 }
 
-func (h *MerchantHandler) lookupAPIKey(ctx context.Context, apiKey string) (uuid.UUID, error) {
-	if h.merchants == nil {
-		return uuid.Nil, service.ErrMerchantNotFound
-	}
-	return h.merchants.PublicIDByAPIKey(ctx, apiKey)
-}
-
 func (h *MerchantHandler) reqLog(c *gin.Context) zerolog.Logger {
 	return h.log.With().Str("request_id", middleware.GetRequestID(c)).Logger()
 }
 
-func registerMerchantMeRoutes(rg *gin.RouterGroup, h *MerchantHandler) {
+func registerMerchantMeRoutes(rg *gin.RouterGroup, mw *middleware.Middlewares, h *MerchantHandler) {
 	if h == nil {
 		h = NewMerchantHandler(nil, nil)
 	}
 	g := rg.Group("/merchant")
-	g.Use(middleware.RequireAPIKey(h.lookupAPIKey))
+	g.Use(mw.APIKey)
 	g.GET("/me", h.GetMe)
 	g.PATCH("/me", h.PatchMe)
 }

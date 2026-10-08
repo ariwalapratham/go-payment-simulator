@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/ariwalapratham/go-payment-simulator/internal/bank"
-	"github.com/ariwalapratham/go-payment-simulator/internal/model"
 	"github.com/ariwalapratham/go-payment-simulator/internal/repository"
 	"github.com/ariwalapratham/go-payment-simulator/internal/service"
 	"github.com/ariwalapratham/go-payment-simulator/internal/webhook"
@@ -126,7 +125,7 @@ func setMerchantWebhookURL(t *testing.T, url string) {
 	t.Helper()
 	tag, err := testPool.Exec(context.Background(),
 		`UPDATE merchants SET webhook_url = $2 WHERE public_id = $1`,
-		model.SeedMerchantPublicID, url)
+		testMerchantPublicID, url)
 	if err != nil {
 		t.Fatalf("set webhook url: %v", err)
 	}
@@ -185,9 +184,9 @@ WHERE p.public_id = $1 AND e.type = $2`, paymentID, eventType).Scan(&status, &at
 
 func TestWebhookAuthorizedAndCaptured(t *testing.T) {
 	resetDB(t)
-	const secret = "dev-webhook-secret"
+	r := testRouter(t)
 	cap := &webhookCapture{}
-	srv := httptest.NewServer(cap.handler(secret))
+	srv := httptest.NewServer(cap.handler(testMerchantWebhookSecret))
 	defer srv.Close()
 	setMerchantWebhookURL(t, srv.URL)
 
@@ -197,9 +196,8 @@ func TestWebhookAuthorizedAndCaptured(t *testing.T) {
 	}
 	startAuthorizeWorker(t, gw, fastRetry())
 	startWebhookWorker(t, webhookRetry(5))
-	r := testRouter(t)
 
-	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(5000, "USD"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -219,7 +217,7 @@ func TestWebhookAuthorizedAndCaptured(t *testing.T) {
 		t.Fatalf("event id header/body mismatch: %s vs %v", authEv.EventID, authBody["id"])
 	}
 
-	captureRec := postPaymentAction(t, r, seedMerchantID(), paymentID, "capture")
+	captureRec := postPaymentAction(t, r, seedAPIKey(), paymentID, "capture")
 	if captureRec.Code != http.StatusOK {
 		t.Fatalf("capture: %d %s", captureRec.Code, captureRec.Body.String())
 	}
@@ -233,16 +231,16 @@ func TestWebhookAuthorizedAndCaptured(t *testing.T) {
 	if capData["payment_id"] != paymentID || capData["status"] != "CAPTURED" {
 		t.Fatalf("captured data: %v", capData)
 	}
-	if !webhook.VerifySignature(secret, capEv.Body, capEv.Signature) {
+	if !webhook.VerifySignature(testMerchantWebhookSecret, capEv.Body, capEv.Signature) {
 		t.Fatal("captured signature invalid")
 	}
 }
 
 func TestWebhookRefunded(t *testing.T) {
 	resetDB(t)
-	const secret = "dev-webhook-secret"
+	r := testRouter(t)
 	cap := &webhookCapture{}
-	srv := httptest.NewServer(cap.handler(secret))
+	srv := httptest.NewServer(cap.handler(testMerchantWebhookSecret))
 	defer srv.Close()
 	setMerchantWebhookURL(t, srv.URL)
 
@@ -252,9 +250,8 @@ func TestWebhookRefunded(t *testing.T) {
 	}
 	startAuthorizeWorker(t, gw, fastRetry())
 	startWebhookWorker(t, webhookRetry(5))
-	r := testRouter(t)
 
-	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(5000, "USD"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -262,13 +259,13 @@ func TestWebhookRefunded(t *testing.T) {
 	waitPaymentStatus(t, r, paymentID, "AUTHORIZED")
 	cap.waitForType(t, "payment.authorized", 3*time.Second)
 
-	captureRec := postPaymentAction(t, r, seedMerchantID(), paymentID, "capture")
+	captureRec := postPaymentAction(t, r, seedAPIKey(), paymentID, "capture")
 	if captureRec.Code != http.StatusOK {
 		t.Fatalf("capture: %d %s", captureRec.Code, captureRec.Body.String())
 	}
 	cap.waitForType(t, "payment.captured", 3*time.Second)
 
-	refundRec := postRefund(t, r, seedMerchantID(), paymentID, randomKey(), refundJSON(5000))
+	refundRec := postRefund(t, r, seedAPIKey(), paymentID, randomKey(), refundJSON(5000))
 	if refundRec.Code != http.StatusCreated {
 		t.Fatalf("refund: %d %s", refundRec.Code, refundRec.Body.String())
 	}
@@ -282,7 +279,7 @@ func TestWebhookRefunded(t *testing.T) {
 	if data["payment_id"] != paymentID || data["status"] != "REFUNDED" {
 		t.Fatalf("refunded data: %v", data)
 	}
-	if !webhook.VerifySignature(secret, refEv.Body, refEv.Signature) {
+	if !webhook.VerifySignature(testMerchantWebhookSecret, refEv.Body, refEv.Signature) {
 		t.Fatal("refunded signature invalid")
 	}
 }
@@ -297,7 +294,7 @@ func TestWebhookSkippedWithoutURL(t *testing.T) {
 	startWebhookWorker(t, webhookRetry(5))
 	r := testRouter(t)
 
-	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(1000, "USD"))
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(1000, "USD"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d", rec.Code)
 	}
@@ -315,9 +312,9 @@ func TestWebhookSkippedWithoutURL(t *testing.T) {
 
 func TestWebhookRetryThenDelivered(t *testing.T) {
 	resetDB(t)
-	const secret = "dev-webhook-secret"
+	r := testRouter(t)
 	cap := &webhookCapture{failLeft: 2}
-	srv := httptest.NewServer(cap.handler(secret))
+	srv := httptest.NewServer(cap.handler(testMerchantWebhookSecret))
 	defer srv.Close()
 	setMerchantWebhookURL(t, srv.URL)
 
@@ -327,9 +324,8 @@ func TestWebhookRetryThenDelivered(t *testing.T) {
 	}
 	startAuthorizeWorker(t, gw, fastRetry())
 	startWebhookWorker(t, webhookRetry(5))
-	r := testRouter(t)
 
-	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(5000, "USD"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -349,9 +345,9 @@ func TestWebhookRetryThenDelivered(t *testing.T) {
 
 func TestWebhookRetryExhausted(t *testing.T) {
 	resetDB(t)
-	const secret = "dev-webhook-secret"
+	r := testRouter(t)
 	cap := &webhookCapture{failLeft: 100}
-	srv := httptest.NewServer(cap.handler(secret))
+	srv := httptest.NewServer(cap.handler(testMerchantWebhookSecret))
 	defer srv.Close()
 	setMerchantWebhookURL(t, srv.URL)
 
@@ -361,9 +357,8 @@ func TestWebhookRetryExhausted(t *testing.T) {
 	}
 	startAuthorizeWorker(t, gw, fastRetry())
 	startWebhookWorker(t, webhookRetry(3))
-	r := testRouter(t)
 
-	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(5000, "USD"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -374,7 +369,7 @@ func TestWebhookRetryExhausted(t *testing.T) {
 	if attempts != 3 {
 		t.Fatalf("attempt_count=%d want 3", attempts)
 	}
-	if got := getPayment(t, r, seedMerchantID(), paymentID); decodePayment(t, got)["status"] != "AUTHORIZED" {
+	if got := getPayment(t, r, seedAPIKey(), paymentID); decodePayment(t, got)["status"] != "AUTHORIZED" {
 		t.Fatalf("payment status: %v", decodePayment(t, got))
 	}
 }

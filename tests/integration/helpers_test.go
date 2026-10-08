@@ -24,6 +24,13 @@ import (
 
 const testAdminAPIKey = "test-admin-key"
 
+//nolint:gochecknoglobals // set by testRouter after creating the seed merchant
+var (
+	testMerchantAPIKey        string
+	testMerchantPublicID      string
+	testMerchantWebhookSecret string
+)
+
 func requireDB(t *testing.T) {
 	t.Helper()
 	if testPool == nil || testCfg == nil {
@@ -34,19 +41,15 @@ func requireDB(t *testing.T) {
 func resetDB(t *testing.T) {
 	t.Helper()
 	requireDB(t)
-	ctx := context.Background()
-	_, err := testPool.Exec(ctx, `
+	_, err := testPool.Exec(context.Background(), `
 TRUNCATE TABLE webhook_deliveries, webhook_events, idempotency_keys, refunds, payments, merchants
 RESTART IDENTITY CASCADE`)
 	if err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
-	_, err = testPool.Exec(ctx, `
-INSERT INTO merchants (public_id, name, api_key_hash, webhook_secret)
-VALUES ($1, 'dev-merchant', 'dev-seed-hash', 'dev-webhook-secret')`, model.SeedMerchantPublicID)
-	if err != nil {
-		t.Fatalf("seed merchant: %v", err)
-	}
+	testMerchantAPIKey = ""
+	testMerchantPublicID = ""
+	testMerchantWebhookSecret = ""
 }
 
 func testRouter(t *testing.T) *gin.Engine {
@@ -55,37 +58,43 @@ func testRouter(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	log := zerolog.Nop()
 	cfg := *testCfg
-	if cfg.Admin.APIKey == "" {
-		cfg.Admin.APIKey = testAdminAPIKey
-	}
+	cfg.Admin.APIKey = testAdminAPIKey
 	s := &server.Server{
 		Config: &cfg,
 		Logger: &log,
 	}
 	repo := repository.NewPaymentRepository(testPool)
 	merchantSvc := service.NewMerchantService(repository.NewMerchantRepository(testPool))
+	created, err := merchantSvc.Create(context.Background(), "dev-merchant", nil)
+	if err != nil {
+		t.Fatalf("seed merchant: %v", err)
+	}
+	testMerchantAPIKey = created.APIKey
+	testMerchantPublicID = created.PublicID.String()
+	testMerchantWebhookSecret = created.WebhookSecret
+
 	payments := handler.NewPaymentHandler(service.NewPaymentService(repo), &log)
 	refunds := handler.NewRefundHandler(service.NewRefundService(repo), &log)
 	admin := handler.NewAdminMerchantHandler(merchantSvc, &log)
 	merchants := handler.NewMerchantHandler(merchantSvc, &log)
-	return handler.NewRouter(s, middleware.NewMiddlewares(s), payments, refunds, admin, merchants)
+	return handler.NewRouter(s, middleware.NewMiddlewares(s, merchantSvc.PublicIDByAPIKey), payments, refunds, admin, merchants)
 }
 
-func postPayment(t *testing.T, r *gin.Engine, merchantID, idempotencyKey, body string) *httptest.ResponseRecorder {
+func postPayment(t *testing.T, r *gin.Engine, apiKey, idempotencyKey, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/payments", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Merchant-Id", merchantID)
+	req.Header.Set(middleware.HeaderAPIKey, apiKey)
 	req.Header.Set("Idempotency-Key", idempotencyKey)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
 }
 
-func getPayment(t *testing.T, r *gin.Engine, merchantID, paymentID string) *httptest.ResponseRecorder {
+func getPayment(t *testing.T, r *gin.Engine, apiKey, paymentID string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/v1/payments/"+paymentID, nil)
-	req.Header.Set("X-Merchant-Id", merchantID)
+	req.Header.Set(middleware.HeaderAPIKey, apiKey)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
@@ -109,8 +118,19 @@ func countPayments(t *testing.T) int {
 	return n
 }
 
-func seedMerchantID() string {
-	return model.SeedMerchantPublicID
+func seedAPIKey() string {
+	return testMerchantAPIKey
+}
+
+func createMerchant(t *testing.T, name string) (publicID, apiKey string) {
+	t.Helper()
+	requireDB(t)
+	created, err := service.NewMerchantService(repository.NewMerchantRepository(testPool)).
+		Create(context.Background(), name, nil)
+	if err != nil {
+		t.Fatalf("create merchant: %v", err)
+	}
+	return created.PublicID.String(), created.APIKey
 }
 
 func paymentJSON(amount int64, currency string) string {
@@ -121,10 +141,10 @@ func randomKey() string {
 	return uuid.NewString()
 }
 
-func postPaymentAction(t *testing.T, r *gin.Engine, merchantID, paymentID, action string) *httptest.ResponseRecorder {
+func postPaymentAction(t *testing.T, r *gin.Engine, apiKey, paymentID, action string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/payments/"+paymentID+"/"+action, nil)
-	req.Header.Set("X-Merchant-Id", merchantID)
+	req.Header.Set(middleware.HeaderAPIKey, apiKey)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
@@ -154,7 +174,7 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) (code, message stri
 
 func createPayment(t *testing.T, r *gin.Engine) string {
 	t.Helper()
-	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(5000, "USD"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -169,7 +189,7 @@ func capturedPayment(t *testing.T, r *gin.Engine) string {
 	t.Helper()
 	id := createPayment(t, r)
 	forcePaymentStatus(t, id, model.PaymentStatusAuthorized)
-	rec := postPaymentAction(t, r, seedMerchantID(), id, "capture")
+	rec := postPaymentAction(t, r, seedAPIKey(), id, "capture")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("capture: %d %s", rec.Code, rec.Body.String())
 	}
@@ -180,21 +200,21 @@ func refundJSON(amount int64) string {
 	return fmt.Sprintf(`{"amount":%d}`, amount)
 }
 
-func postRefund(t *testing.T, r *gin.Engine, merchantID, paymentID, idempotencyKey, body string) *httptest.ResponseRecorder {
+func postRefund(t *testing.T, r *gin.Engine, apiKey, paymentID, idempotencyKey, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/payments/"+paymentID+"/refund", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Merchant-Id", merchantID)
+	req.Header.Set(middleware.HeaderAPIKey, apiKey)
 	req.Header.Set("Idempotency-Key", idempotencyKey)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
 }
 
-func getRefund(t *testing.T, r *gin.Engine, merchantID, refundID string) *httptest.ResponseRecorder {
+func getRefund(t *testing.T, r *gin.Engine, apiKey, refundID string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/v1/refunds/"+refundID, nil)
-	req.Header.Set("X-Merchant-Id", merchantID)
+	req.Header.Set(middleware.HeaderAPIKey, apiKey)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec

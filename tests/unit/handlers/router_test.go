@@ -1,7 +1,9 @@
 package handlers_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,8 +14,18 @@ import (
 	"github.com/ariwalapratham/go-payment-simulator/internal/middleware"
 	"github.com/ariwalapratham/go-payment-simulator/internal/server"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+const unitAPIKey = "sk_test_unit"
+
+func unitAPIKeyLookup(_ context.Context, key string) (uuid.UUID, error) {
+	if key == unitAPIKey {
+		return uuid.MustParse("11111111-1111-1111-1111-111111111111"), nil
+	}
+	return uuid.Nil, errors.New("invalid api key")
+}
 
 func testRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
@@ -27,7 +39,7 @@ func testRouter() *gin.Engine {
 	}
 	return handler.NewRouter(
 		s,
-		middleware.NewMiddlewares(s),
+		middleware.NewMiddlewares(s, unitAPIKeyLookup),
 		handler.NewPaymentHandler(nil, &log),
 		handler.NewRefundHandler(nil, &log),
 		handler.NewAdminMerchantHandler(nil, &log),
@@ -54,6 +66,50 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestPaymentAndRefundRoutesRequireAPIKey(t *testing.T) {
+	t.Parallel()
+
+	paymentID := "11111111-1111-1111-1111-111111111111"
+	cases := []struct {
+		method, path, body string
+	}{
+		{http.MethodPost, "/v1/payments", `{"amount":5000,"currency":"USD"}`},
+		{http.MethodGet, "/v1/payments/" + paymentID, ""},
+		{http.MethodPost, "/v1/payments/" + paymentID + "/capture", ""},
+		{http.MethodPost, "/v1/payments/" + paymentID + "/cancel", ""},
+		{http.MethodPost, "/v1/payments/" + paymentID + "/refund", `{"amount":1000}`},
+		{http.MethodGet, "/v1/refunds/" + paymentID, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path+" missing", func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			if tc.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			testRouter().ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status: got %d want %d", rec.Code, http.StatusUnauthorized)
+			}
+		})
+		t.Run(tc.method+" "+tc.path+" bad key", func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			if tc.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			req.Header.Set(middleware.HeaderAPIKey, "sk_test_bad")
+			testRouter().ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status: got %d want %d", rec.Code, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
 func TestCreatePaymentMissingHeaders(t *testing.T) {
 	t.Parallel()
 
@@ -62,32 +118,8 @@ func TestCreatePaymentMissingHeaders(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	testRouter().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestCaptureRequiresMerchantID(t *testing.T) {
-	t.Parallel()
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/payments/11111111-1111-1111-1111-111111111111/capture", nil)
-	testRouter().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestCancelRequiresMerchantID(t *testing.T) {
-	t.Parallel()
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/payments/11111111-1111-1111-1111-111111111111/cancel", nil)
-	testRouter().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d want %d", rec.Code, http.StatusBadRequest)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status: got %d want %d", rec.Code, http.StatusUnauthorized)
 	}
 }
 
@@ -96,20 +128,7 @@ func TestCaptureInvalidPaymentID(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/payments/not-a-uuid/capture", nil)
-	req.Header.Set("X-Merchant-Id", "11111111-1111-1111-1111-111111111111")
-	testRouter().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestRefundRequiresMerchantID(t *testing.T) {
-	t.Parallel()
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/payments/11111111-1111-1111-1111-111111111111/refund", strings.NewReader(`{"amount":1000}`))
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(middleware.HeaderAPIKey, unitAPIKey)
 	testRouter().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
@@ -123,7 +142,7 @@ func TestRefundRequiresIdempotencyKey(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/payments/11111111-1111-1111-1111-111111111111/refund", strings.NewReader(`{"amount":1000}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Merchant-Id", "11111111-1111-1111-1111-111111111111")
+	req.Header.Set(middleware.HeaderAPIKey, unitAPIKey)
 	testRouter().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
@@ -131,11 +150,13 @@ func TestRefundRequiresIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestGetRefundRequiresMerchantID(t *testing.T) {
+func TestPaymentsRejectMerchantIDHeader(t *testing.T) {
 	t.Parallel()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/refunds/11111111-1111-1111-1111-111111111111", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/payments/11111111-1111-1111-1111-111111111111", nil)
+	req.Header.Set(middleware.HeaderAPIKey, unitAPIKey)
+	req.Header.Set(middleware.HeaderMerchantID, "11111111-1111-1111-1111-111111111111")
 	testRouter().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {

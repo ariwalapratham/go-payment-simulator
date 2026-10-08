@@ -16,24 +16,6 @@ const (
 	ctxIdempotencyKey = "idempotency_key"
 )
 
-// RequireMerchantID reads X-Merchant-Id (UUID) into the request context.
-func RequireMerchantID() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		raw := strings.TrimSpace(c.GetHeader(HeaderMerchantID))
-		if raw == "" {
-			AbortWithError(c, errs.NewBadRequestError("X-Merchant-Id header is required", true, nil, nil, nil))
-			return
-		}
-		id, err := uuid.Parse(raw)
-		if err != nil {
-			AbortWithError(c, errs.NewBadRequestError("invalid X-Merchant-Id", true, nil, nil, nil))
-			return
-		}
-		c.Set(ctxMerchantID, id)
-		c.Next()
-	}
-}
-
 // RequireIdempotencyKey reads Idempotency-Key; used on POST /v1/payments.
 func RequireIdempotencyKey() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -47,7 +29,7 @@ func RequireIdempotencyKey() gin.HandlerFunc {
 	}
 }
 
-// MerchantIDFrom is the UUID stored by RequireMerchantID.
+// MerchantIDFrom is the merchant public id stored by RequireAPIKey.
 func MerchantIDFrom(c *gin.Context) uuid.UUID {
 	v, _ := c.Get(ctxMerchantID)
 	id, _ := v.(uuid.UUID)

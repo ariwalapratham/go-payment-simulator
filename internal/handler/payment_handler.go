@@ -87,7 +87,7 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 	c.JSON(status, resp)
 }
 
-// Get handles GET /v1/payments/:id for the merchant in X-Merchant-Id.
+// Get handles GET /v1/payments/:id for the merchant authenticated by X-Api-Key.
 func (h *PaymentHandler) Get(c *gin.Context) {
 	h.loadPayment(c, "get payment", h.payments.Get)
 }
@@ -154,7 +154,7 @@ func registerPaymentRoutes(rg *gin.RouterGroup, mw *middleware.Middlewares, h *P
 		refunds = NewRefundHandler(nil, nil)
 	}
 	g := rg.Group("/payments")
-	g.Use(mw.MerchantID)
+	g.Use(mw.APIKey)
 	g.POST("", mw.IdempotencyKey, h.Create)
 	g.GET("/:id", h.Get)
 	g.POST("/:id/capture", h.Capture)

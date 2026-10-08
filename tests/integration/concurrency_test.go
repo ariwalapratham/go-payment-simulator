@@ -29,7 +29,7 @@ func TestCreatePayment_ConcurrentSameKey(t *testing.T) {
 	for i := range n {
 		go func(i int) {
 			defer wg.Done()
-			rec := postPayment(t, r, seedMerchantID(), key, body)
+			rec := postPayment(t, r, seedAPIKey(), key, body)
 			results[i] = result{code: rec.Code, raw: rec.Body.Bytes()}
 		}(i)
 	}
@@ -74,7 +74,7 @@ func TestCapture_ConcurrentOnce(t *testing.T) {
 	for i := range n {
 		go func(i int) {
 			defer wg.Done()
-			rec := postPaymentAction(t, r, seedMerchantID(), id, "capture")
+			rec := postPaymentAction(t, r, seedAPIKey(), id, "capture")
 			codes[i] = rec.Code
 		}(i)
 	}
@@ -94,7 +94,7 @@ func TestCapture_ConcurrentOnce(t *testing.T) {
 	if ok != 1 || conflict != n-1 {
 		t.Fatalf("ok=%d conflict=%d want 1/%d", ok, conflict, n-1)
 	}
-	got := getPayment(t, r, seedMerchantID(), id)
+	got := getPayment(t, r, seedAPIKey(), id)
 	if decodePayment(t, got)["status"] != "CAPTURED" {
 		t.Fatalf("status %v", decodePayment(t, got)["status"])
 	}
@@ -112,7 +112,7 @@ func TestRefund_ConcurrentDifferentKeysDoNotOverRefund(t *testing.T) {
 	for i := range n {
 		go func(i int) {
 			defer wg.Done()
-			rec := postRefund(t, r, seedMerchantID(), id, randomKey(), refundJSON(3000))
+			rec := postRefund(t, r, seedAPIKey(), id, randomKey(), refundJSON(3000))
 			codes[i] = rec.Code
 		}(i)
 	}
@@ -157,7 +157,7 @@ func TestRefund_ConcurrentSameKeyOnce(t *testing.T) {
 	for i := range n {
 		go func(i int) {
 			defer wg.Done()
-			rec := postRefund(t, r, seedMerchantID(), id, key, refundJSON(3000))
+			rec := postRefund(t, r, seedAPIKey(), id, key, refundJSON(3000))
 			codes[i] = rec.Code
 			body := decodePayment(t, rec)
 			ids[i], _ = body["id"].(string)

@@ -84,7 +84,7 @@ func (h *RefundHandler) Create(c *gin.Context) {
 	c.JSON(status, resp)
 }
 
-// Get handles GET /v1/refunds/:id for the merchant in X-Merchant-Id.
+// Get handles GET /v1/refunds/:id for the merchant authenticated by X-Api-Key.
 func (h *RefundHandler) Get(c *gin.Context) {
 	log := h.reqLog(c)
 	merchantID := middleware.MerchantIDFrom(c)
@@ -135,6 +135,6 @@ func registerRefundRoutes(rg *gin.RouterGroup, mw *middleware.Middlewares, h *Re
 		h = NewRefundHandler(nil, nil)
 	}
 	g := rg.Group("/refunds")
-	g.Use(mw.MerchantID)
+	g.Use(mw.APIKey)
 	g.GET("/:id", h.Get)
 }

@@ -13,13 +13,13 @@ type Middlewares struct {
 	Recovery       gin.HandlerFunc
 	Logger         gin.HandlerFunc
 	Errors         gin.HandlerFunc
-	MerchantID     gin.HandlerFunc
+	APIKey         gin.HandlerFunc
 	IdempotencyKey gin.HandlerFunc
 	AdminAuth      gin.HandlerFunc
 	RateLimit      *RateLimitMiddleware
 }
 
-func NewMiddlewares(s *server.Server) *Middlewares {
+func NewMiddlewares(s *server.Server, lookup APIKeyLookup) *Middlewares {
 	var nrApp *newrelic.Application
 	if s.LoggerService != nil {
 		nrApp = s.LoggerService.GetApplication()
@@ -36,7 +36,7 @@ func NewMiddlewares(s *server.Server) *Middlewares {
 		Recovery:       Recovery(s.Logger),
 		Logger:         Logger(s.Logger),
 		Errors:         ErrorHandler(),
-		MerchantID:     RequireMerchantID(),
+		APIKey:         RequireAPIKey(lookup),
 		IdempotencyKey: RequireIdempotencyKey(),
 		AdminAuth:      AdminAuth(adminKey),
 		RateLimit:      NewRateLimitMiddleware(s),

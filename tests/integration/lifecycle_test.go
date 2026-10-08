@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/ariwalapratham/go-payment-simulator/internal/model"
-	"github.com/google/uuid"
 )
 
 func TestCaptureAuthorizedPayment(t *testing.T) {
@@ -17,7 +16,7 @@ func TestCaptureAuthorizedPayment(t *testing.T) {
 	id := createPayment(t, r)
 	forcePaymentStatus(t, id, model.PaymentStatusAuthorized)
 
-	rec := postPaymentAction(t, r, seedMerchantID(), id, "capture")
+	rec := postPaymentAction(t, r, seedAPIKey(), id, "capture")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -31,7 +30,7 @@ func TestCaptureRejectedWhenPending(t *testing.T) {
 	r := testRouter(t)
 	id := createPayment(t, r)
 
-	rec := postPaymentAction(t, r, seedMerchantID(), id, "capture")
+	rec := postPaymentAction(t, r, seedAPIKey(), id, "capture")
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -50,11 +49,11 @@ func TestCaptureTwiceConflicts(t *testing.T) {
 	id := createPayment(t, r)
 	forcePaymentStatus(t, id, model.PaymentStatusAuthorized)
 
-	first := postPaymentAction(t, r, seedMerchantID(), id, "capture")
+	first := postPaymentAction(t, r, seedAPIKey(), id, "capture")
 	if first.Code != http.StatusOK {
 		t.Fatalf("first: %d %s", first.Code, first.Body.String())
 	}
-	second := postPaymentAction(t, r, seedMerchantID(), id, "capture")
+	second := postPaymentAction(t, r, seedAPIKey(), id, "capture")
 	if second.Code != http.StatusConflict {
 		t.Fatalf("second: %d %s", second.Code, second.Body.String())
 	}
@@ -69,7 +68,7 @@ func TestCancelPendingPayment(t *testing.T) {
 	r := testRouter(t)
 	id := createPayment(t, r)
 
-	rec := postPaymentAction(t, r, seedMerchantID(), id, "cancel")
+	rec := postPaymentAction(t, r, seedAPIKey(), id, "cancel")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -84,7 +83,7 @@ func TestCancelAuthorizedPayment(t *testing.T) {
 	id := createPayment(t, r)
 	forcePaymentStatus(t, id, model.PaymentStatusAuthorized)
 
-	rec := postPaymentAction(t, r, seedMerchantID(), id, "cancel")
+	rec := postPaymentAction(t, r, seedAPIKey(), id, "cancel")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -98,12 +97,12 @@ func TestCancelAfterCaptureConflicts(t *testing.T) {
 	r := testRouter(t)
 	id := createPayment(t, r)
 	forcePaymentStatus(t, id, model.PaymentStatusAuthorized)
-	cap := postPaymentAction(t, r, seedMerchantID(), id, "capture")
+	cap := postPaymentAction(t, r, seedAPIKey(), id, "capture")
 	if cap.Code != http.StatusOK {
 		t.Fatalf("capture: %d %s", cap.Code, cap.Body.String())
 	}
 
-	rec := postPaymentAction(t, r, seedMerchantID(), id, "cancel")
+	rec := postPaymentAction(t, r, seedAPIKey(), id, "cancel")
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -119,7 +118,8 @@ func TestCaptureOtherMerchantNotFound(t *testing.T) {
 	id := createPayment(t, r)
 	forcePaymentStatus(t, id, model.PaymentStatusAuthorized)
 
-	rec := postPaymentAction(t, r, uuid.NewString(), id, "capture")
+	_, otherKey := createMerchant(t, "other-merchant")
+	rec := postPaymentAction(t, r, otherKey, id, "capture")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}

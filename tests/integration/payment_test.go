@@ -13,7 +13,7 @@ func TestCreatePayment_CreatesPending(t *testing.T) {
 	resetDB(t)
 	r := testRouter(t)
 
-	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(5000, "USD"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -35,11 +35,11 @@ func TestCreatePayment_IdempotentReplay(t *testing.T) {
 	key := randomKey()
 	body := paymentJSON(5000, "USD")
 
-	first := postPayment(t, r, seedMerchantID(), key, body)
+	first := postPayment(t, r, seedAPIKey(), key, body)
 	if first.Code != http.StatusCreated {
 		t.Fatalf("first: got %d body=%s", first.Code, first.Body.String())
 	}
-	second := postPayment(t, r, seedMerchantID(), key, body)
+	second := postPayment(t, r, seedAPIKey(), key, body)
 	if second.Code != http.StatusOK {
 		t.Fatalf("replay: got %d body=%s", second.Code, second.Body.String())
 	}
@@ -59,11 +59,11 @@ func TestCreatePayment_KeyReuseDifferentBody(t *testing.T) {
 	r := testRouter(t)
 	key := randomKey()
 
-	first := postPayment(t, r, seedMerchantID(), key, paymentJSON(5000, "USD"))
+	first := postPayment(t, r, seedAPIKey(), key, paymentJSON(5000, "USD"))
 	if first.Code != http.StatusCreated {
 		t.Fatalf("first: got %d body=%s", first.Code, first.Body.String())
 	}
-	second := postPayment(t, r, seedMerchantID(), key, paymentJSON(6000, "USD"))
+	second := postPayment(t, r, seedAPIKey(), key, paymentJSON(6000, "USD"))
 	if second.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("mismatch: got %d body=%s", second.Code, second.Body.String())
 	}
@@ -77,7 +77,7 @@ func TestCreatePayment_KeyReuseDifferentBody(t *testing.T) {
 func TestGetPayment_NotFound(t *testing.T) {
 	resetDB(t)
 	r := testRouter(t)
-	rec := getPayment(t, r, seedMerchantID(), uuid.NewString())
+	rec := getPayment(t, r, seedAPIKey(), uuid.NewString())
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -86,12 +86,12 @@ func TestGetPayment_NotFound(t *testing.T) {
 func TestGetPayment_OK(t *testing.T) {
 	resetDB(t)
 	r := testRouter(t)
-	created := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(2500, "EUR"))
+	created := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(2500, "EUR"))
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create: got %d body=%s", created.Code, created.Body.String())
 	}
 	id, _ := decodePayment(t, created)["id"].(string)
-	got := getPayment(t, r, seedMerchantID(), id)
+	got := getPayment(t, r, seedAPIKey(), id)
 	if got.Code != http.StatusOK {
 		t.Fatalf("get: got %d body=%s", got.Code, got.Body.String())
 	}

@@ -15,7 +15,7 @@ func TestRefundFullAmount(t *testing.T) {
 	r := testRouter(t)
 	id := capturedPayment(t, r)
 
-	rec := postRefund(t, r, seedMerchantID(), id, randomKey(), refundJSON(5000))
+	rec := postRefund(t, r, seedAPIKey(), id, randomKey(), refundJSON(5000))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -23,7 +23,7 @@ func TestRefundFullAmount(t *testing.T) {
 	if body["status"] != "SUCCEEDED" || body["amount"] != float64(5000) {
 		t.Fatalf("refund: %v", body)
 	}
-	got := getPayment(t, r, seedMerchantID(), id)
+	got := getPayment(t, r, seedAPIKey(), id)
 	if decodePayment(t, got)["status"] != "REFUNDED" {
 		t.Fatalf("payment status: %v", decodePayment(t, got)["status"])
 	}
@@ -34,23 +34,23 @@ func TestRefundPartialThenFullThenReject(t *testing.T) {
 	r := testRouter(t)
 	id := capturedPayment(t, r)
 
-	first := postRefund(t, r, seedMerchantID(), id, randomKey(), refundJSON(3000))
+	first := postRefund(t, r, seedAPIKey(), id, randomKey(), refundJSON(3000))
 	if first.Code != http.StatusCreated {
 		t.Fatalf("first: %d %s", first.Code, first.Body.String())
 	}
-	if decodePayment(t, getPayment(t, r, seedMerchantID(), id))["status"] != "CAPTURED" {
+	if decodePayment(t, getPayment(t, r, seedAPIKey(), id))["status"] != "CAPTURED" {
 		t.Fatal("partial refund must leave payment CAPTURED")
 	}
 
-	second := postRefund(t, r, seedMerchantID(), id, randomKey(), refundJSON(2000))
+	second := postRefund(t, r, seedAPIKey(), id, randomKey(), refundJSON(2000))
 	if second.Code != http.StatusCreated {
 		t.Fatalf("second: %d %s", second.Code, second.Body.String())
 	}
-	if decodePayment(t, getPayment(t, r, seedMerchantID(), id))["status"] != "REFUNDED" {
+	if decodePayment(t, getPayment(t, r, seedAPIKey(), id))["status"] != "REFUNDED" {
 		t.Fatal("zero remaining must set REFUNDED")
 	}
 
-	third := postRefund(t, r, seedMerchantID(), id, randomKey(), refundJSON(1))
+	third := postRefund(t, r, seedAPIKey(), id, randomKey(), refundJSON(1))
 	if third.Code != http.StatusConflict {
 		t.Fatalf("third: %d %s", third.Code, third.Body.String())
 	}
@@ -64,11 +64,11 @@ func TestRefundExceedsRemaining(t *testing.T) {
 	resetDB(t)
 	r := testRouter(t)
 	id := capturedPayment(t, r)
-	if rec := postRefund(t, r, seedMerchantID(), id, randomKey(), refundJSON(3000)); rec.Code != http.StatusCreated {
+	if rec := postRefund(t, r, seedAPIKey(), id, randomKey(), refundJSON(3000)); rec.Code != http.StatusCreated {
 		t.Fatalf("setup: %d %s", rec.Code, rec.Body.String())
 	}
 
-	rec := postRefund(t, r, seedMerchantID(), id, randomKey(), refundJSON(3000))
+	rec := postRefund(t, r, seedAPIKey(), id, randomKey(), refundJSON(3000))
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -76,7 +76,7 @@ func TestRefundExceedsRemaining(t *testing.T) {
 	if code != "refund_exceeds_balance" {
 		t.Fatalf("code: %s", code)
 	}
-	if decodePayment(t, getPayment(t, r, seedMerchantID(), id))["status"] != "CAPTURED" {
+	if decodePayment(t, getPayment(t, r, seedAPIKey(), id))["status"] != "CAPTURED" {
 		t.Fatal("over-refund must leave payment CAPTURED")
 	}
 }
@@ -87,7 +87,7 @@ func TestRefundRejectedWhenAuthorized(t *testing.T) {
 	id := createPayment(t, r)
 	forcePaymentStatus(t, id, model.PaymentStatusAuthorized)
 
-	rec := postRefund(t, r, seedMerchantID(), id, randomKey(), refundJSON(1000))
+	rec := postRefund(t, r, seedAPIKey(), id, randomKey(), refundJSON(1000))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -100,11 +100,11 @@ func TestRefundIdempotentReplay(t *testing.T) {
 	key := randomKey()
 	body := refundJSON(3000)
 
-	first := postRefund(t, r, seedMerchantID(), id, key, body)
+	first := postRefund(t, r, seedAPIKey(), id, key, body)
 	if first.Code != http.StatusCreated {
 		t.Fatalf("first: %d %s", first.Code, first.Body.String())
 	}
-	second := postRefund(t, r, seedMerchantID(), id, key, body)
+	second := postRefund(t, r, seedAPIKey(), id, key, body)
 	if second.Code != http.StatusOK {
 		t.Fatalf("replay: %d %s", second.Code, second.Body.String())
 	}
@@ -123,11 +123,11 @@ func TestRefundIdempotentReplayAfterFullyRefunded(t *testing.T) {
 	key := randomKey()
 	body := refundJSON(5000)
 
-	first := postRefund(t, r, seedMerchantID(), id, key, body)
+	first := postRefund(t, r, seedAPIKey(), id, key, body)
 	if first.Code != http.StatusCreated {
 		t.Fatalf("first: %d %s", first.Code, first.Body.String())
 	}
-	second := postRefund(t, r, seedMerchantID(), id, key, body)
+	second := postRefund(t, r, seedAPIKey(), id, key, body)
 	if second.Code != http.StatusOK {
 		t.Fatalf("replay of full refund: %d %s", second.Code, second.Body.String())
 	}
@@ -142,11 +142,11 @@ func TestRefundKeyReuseDifferentAmount(t *testing.T) {
 	id := capturedPayment(t, r)
 	key := randomKey()
 
-	first := postRefund(t, r, seedMerchantID(), id, key, refundJSON(3000))
+	first := postRefund(t, r, seedAPIKey(), id, key, refundJSON(3000))
 	if first.Code != http.StatusCreated {
 		t.Fatalf("first: %d %s", first.Code, first.Body.String())
 	}
-	second := postRefund(t, r, seedMerchantID(), id, key, refundJSON(2000))
+	second := postRefund(t, r, seedAPIKey(), id, key, refundJSON(2000))
 	if second.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("mismatch: %d %s", second.Code, second.Body.String())
 	}
@@ -160,23 +160,24 @@ func TestGetRefundOKAndNotFound(t *testing.T) {
 	resetDB(t)
 	r := testRouter(t)
 	id := capturedPayment(t, r)
-	created := postRefund(t, r, seedMerchantID(), id, randomKey(), refundJSON(1000))
+	created := postRefund(t, r, seedAPIKey(), id, randomKey(), refundJSON(1000))
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", created.Code, created.Body.String())
 	}
 	refundID, _ := decodePayment(t, created)["id"].(string)
 
-	got := getRefund(t, r, seedMerchantID(), refundID)
+	got := getRefund(t, r, seedAPIKey(), refundID)
 	if got.Code != http.StatusOK {
 		t.Fatalf("get: %d %s", got.Code, got.Body.String())
 	}
 
-	missing := getRefund(t, r, seedMerchantID(), uuid.NewString())
+	missing := getRefund(t, r, seedAPIKey(), uuid.NewString())
 	if missing.Code != http.StatusNotFound {
 		t.Fatalf("missing: %d %s", missing.Code, missing.Body.String())
 	}
 
-	other := getRefund(t, r, uuid.NewString(), refundID)
+	_, otherKey := createMerchant(t, "other-merchant")
+	other := getRefund(t, r, otherKey, refundID)
 	if other.Code != http.StatusNotFound {
 		t.Fatalf("other merchant: %d %s", other.Code, other.Body.String())
 	}
@@ -186,17 +187,17 @@ func TestRefundSameCreateKeyIsIndependentScope(t *testing.T) {
 	resetDB(t)
 	r := testRouter(t)
 	key := randomKey()
-	created := postPayment(t, r, seedMerchantID(), key, paymentJSON(5000, "USD"))
+	created := postPayment(t, r, seedAPIKey(), key, paymentJSON(5000, "USD"))
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", created.Code, created.Body.String())
 	}
 	id, _ := decodePayment(t, created)["id"].(string)
 	forcePaymentStatus(t, id, model.PaymentStatusAuthorized)
-	if rec := postPaymentAction(t, r, seedMerchantID(), id, "capture"); rec.Code != http.StatusOK {
+	if rec := postPaymentAction(t, r, seedAPIKey(), id, "capture"); rec.Code != http.StatusOK {
 		t.Fatalf("capture: %d %s", rec.Code, rec.Body.String())
 	}
 
-	rec := postRefund(t, r, seedMerchantID(), id, key, refundJSON(1000))
+	rec := postRefund(t, r, seedAPIKey(), id, key, refundJSON(1000))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("scoped refund: %d %s", rec.Code, rec.Body.String())
 	}

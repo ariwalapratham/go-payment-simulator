@@ -4,7 +4,7 @@
 Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`, `docs/api-db-design-payment-simulator.md`, `docs/db-latest-design.md`, and `docs/api-db-new-changes.md` (merchant admin + webhook delivery contract).
 
 ## Phase
-**Webhook delivery + reliability complete** — outbox, §3.11 HMAC POST, retry/backoff, terminal `FAILED`. Outbound shape: `docs/api-db-new-changes.md` §3.11 (not older ARD §3.8).
+**API-key auth on payments/refunds complete** — `X-Api-Key` (same middleware as `/merchant/me`); `X-Merchant-Id` rejected. Webhook delivery + reliability already done. Outbound shape: `docs/api-db-new-changes.md` §3.11 (not older ARD §3.8).
 
 ## Package map (actual vs doc)
 - HTTP: `internal/handler` + `internal/middleware` (doc: `internal/http`)
@@ -44,13 +44,13 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] Merchant admin + self-service (FR23–24, FR35 rotate, FR36): `PAYMENTS_ADMIN_API_KEY`, `X-Admin-Key`, `POST/GET/PATCH /v1/admin/merchants`, `POST …/rotate-key`, `GET/PATCH /v1/merchant/me` (`X-Api-Key`); `api_key` + `webhook_secret` returned only on create (key also on rotate)
 - [x] Webhook outbox (FR18, FR25–26): enqueue in authorize/capture/refund txns when `webhook_url` set; `internal/webhook` signer + §3.11 body; `WebhookWorker` POST → `DELIVERED` on 2xx; `PAYMENTS_WEBHOOK_*` config
 - [x] Webhook reliability (FR19–20): exponential backoff, max attempts, terminal `FAILED`; redelivery keeps the same `X-Webhook-Event-Id`
+- [x] API-key auth on payments/refunds (Addendum 2 §2): `X-Api-Key` → `merchant_id` in context; missing/invalid → 401; `X-Merchant-Id` rejected; rotate-key invalidates immediately
 
 ## In progress
 - (none)
 
 ## Explicitly deferred (do not implement yet)
 - Prometheus `/metrics`
-- API-key auth on payment/refund routes (still `X-Merchant-Id`)
 - `GET /v1/payments` list/cursor, `/healthz` vs `/readyz` split, validation `field` envelope (`api-db-new-changes` §3.8–3.10, §4)
 
 ## Commands
@@ -68,7 +68,7 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 ## Layers
 Client → Router → Middleware → Handler → Service → Repository → DB.
 
-- **Middleware:** cross-cutting only (request ID, tracing, recovery, access log, error envelope, `X-Merchant-Id`, `Idempotency-Key`, `X-Admin-Key`, `X-Api-Key`). No business logic.
+- **Middleware:** cross-cutting only (request ID, tracing, recovery, access log, error envelope, `Idempotency-Key`, `X-Admin-Key`, `X-Api-Key`). No business logic.
 - **Handler:** HTTP only — bind JSON, status codes (201 vs 200), map service errors to the error envelope, endpoint logs. Never log `api_key` or `webhook_secret`.
 - **Service:** orchestration, hashing, state rules. No Gin, no HTTP DTOs, no `*errs.HTTPError`.
 - **Repository:** SQL / transactions. No HTTP types.
@@ -84,8 +84,8 @@ Client → Router → Middleware → Handler → Service → Repository → DB.
 - Amounts: int64 minor units
 - Internal IDs: bigint; public IDs: UUID strings
 - API prefix: `/v1`
-- Idempotency: header `Idempotency-Key`, merchant `X-Merchant-Id` (payments/refunds)
+- Idempotency: header `Idempotency-Key`; merchant from `X-Api-Key` (payments/refunds and `/merchant/me`). Do not accept `X-Merchant-Id`, body, or query `merchant_id`
 - Admin: header `X-Admin-Key` = `PAYMENTS_ADMIN_API_KEY` (fail closed if unset)
-- Merchant self-service: header `X-Api-Key` (plaintext `sk_test_…`; store only `api_key_hash`)
+- Merchant API key: header `X-Api-Key` (plaintext `sk_test_…`; store only `api_key_hash`; never log plaintext)
 - Webhook outbound: `X-Webhook-Signature`, `X-Webhook-Event-Id`, body `{id,type,created_at,data}` per `api-db-new-changes` §3.11
-- Integration seed merchant public_id: `11111111-1111-1111-1111-111111111111` (helper INSERT, not a migration)
+- Integration tests create a merchant via `MerchantService.Create` (same as admin) and use the returned `api_key`

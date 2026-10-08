@@ -41,7 +41,7 @@ func waitPaymentStatus(t *testing.T, r *gin.Engine, paymentID, want string) {
 	deadline := time.Now().Add(3 * time.Second)
 	var last string
 	for time.Now().Before(deadline) {
-		rec := getPayment(t, r, seedMerchantID(), paymentID)
+		rec := getPayment(t, r, seedAPIKey(), paymentID)
 		if rec.Code == http.StatusOK {
 			body := decodePayment(t, rec)
 			last, _ = body["status"].(string)
@@ -83,7 +83,7 @@ func TestWorkerAuthorizesPayment(t *testing.T) {
 	startAuthorizeWorker(t, gw, fastRetry())
 	r := testRouter(t)
 
-	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(5000, "USD"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -100,7 +100,7 @@ func TestWorkerDeclinesPayment(t *testing.T) {
 	startAuthorizeWorker(t, gw, fastRetry())
 	r := testRouter(t)
 
-	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(5000, "USD"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -120,7 +120,7 @@ func TestWorkerRetriesTimeoutThenSucceeds(t *testing.T) {
 	startAuthorizeWorker(t, gw, fastRetry())
 	r := testRouter(t)
 
-	rec := postPayment(t, r, seedMerchantID(), randomKey(), paymentJSON(5000, "USD"))
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(5000, "USD"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -170,7 +170,7 @@ func TestWorkerCancelDuringAuthorizeWins(t *testing.T) {
 	id := createPayment(t, r)
 	waitAuthorizeClaimed(t, id)
 
-	rec := postPaymentAction(t, r, seedMerchantID(), id, "cancel")
+	rec := postPaymentAction(t, r, seedAPIKey(), id, "cancel")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("cancel: %d %s", rec.Code, rec.Body.String())
 	}
@@ -179,7 +179,7 @@ func TestWorkerCancelDuringAuthorizeWins(t *testing.T) {
 	}
 
 	time.Sleep(700 * time.Millisecond)
-	got := getPayment(t, r, seedMerchantID(), id)
+	got := getPayment(t, r, seedAPIKey(), id)
 	if decodePayment(t, got)["status"] != "CANCELLED" {
 		t.Fatalf("worker overwrote cancel: %v", decodePayment(t, got)["status"])
 	}

@@ -55,6 +55,28 @@ func TestRequireAPIKey(t *testing.T) {
 	}
 }
 
+func TestRequireAPIKeyRejectsMerchantID(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(middleware.ErrorHandler(), middleware.RequireAPIKey(func(_ context.Context, _ string) (uuid.UUID, error) {
+		return uuid.New(), nil
+	}))
+	r.GET("/x", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Header.Set(middleware.HeaderAPIKey, "sk_test_ok")
+	req.Header.Set(middleware.HeaderMerchantID, uuid.NewString())
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("merchant id header: got %d", rec.Code)
+	}
+}
+
 func TestRequireAPIKeyNilLookup(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)

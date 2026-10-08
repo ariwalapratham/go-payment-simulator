@@ -34,7 +34,7 @@ func NewRouter(
 	v1 := r.Group("/v1")
 	v1.GET("/health", health)
 	registerAdminMerchantRoutes(v1, mw, admin)
-	registerMerchantMeRoutes(v1, merchants)
+	registerMerchantMeRoutes(v1, mw, merchants)
 	registerPaymentRoutes(v1, mw, payments, refunds)
 	registerRefundRoutes(v1, mw, refunds)
 
