@@ -26,6 +26,7 @@ type HTTPError struct {
 	Message  string `json:"message"`
 	Status   int    `json:"status"`
 	Override bool   `json:"override"`
+	Field    string `json:"field,omitempty"`
 	// field level errors
 	Errors []FieldError `json:"errors"`
 	// action to be taken
@@ -48,6 +49,7 @@ func (e *HTTPError) WithMessage(message string) *HTTPError {
 		Message:  message,
 		Status:   e.Status,
 		Override: e.Override,
+		Field:    e.Field,
 		Errors:   e.Errors,
 		Action:   e.Action,
 	}

@@ -2,9 +2,11 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/ariwalapratham/go-payment-simulator/internal/errs"
+	"github.com/ariwalapratham/go-payment-simulator/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -34,7 +36,11 @@ func RequireAPIKey(lookup APIKeyLookup) gin.HandlerFunc {
 		}
 		id, err := lookup(c.Request.Context(), key)
 		if err != nil {
-			AbortWithError(c, errs.NewUnauthorizedError("invalid API key", true))
+			if errors.Is(err, service.ErrMerchantNotFound) {
+				AbortWithError(c, errs.NewUnauthorizedError("invalid API key", true))
+				return
+			}
+			AbortWithError(c, err)
 			return
 		}
 		c.Set(ctxMerchantID, id)

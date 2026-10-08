@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
-	"unicode"
 
 	"github.com/ariwalapratham/go-payment-simulator/internal/errs"
 	"github.com/ariwalapratham/go-payment-simulator/internal/middleware"
@@ -16,8 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
-
-const currencyLen = 3
 
 type PaymentHandler struct {
 	payments *service.PaymentService
@@ -162,25 +158,15 @@ func registerPaymentRoutes(rg *gin.RouterGroup, mw *middleware.Middlewares, h *P
 	g.POST("/:id/refund", mw.IdempotencyKey, refunds.Create)
 }
 
-// validateCreateRequest checks amount > 0 and a 3-letter currency.
+// validateCreateRequest checks amount > 0 and a currency on the allowlist (FR29–30).
 func validateCreateRequest(req model.CreatePaymentRequest) error {
 	if req.Amount <= 0 {
-		return errs.NewBadRequestError("amount must be greater than 0", true, nil, nil, nil)
+		return errs.NewInvalidFieldError("INVALID_AMOUNT", "amount must be a positive integer", "amount")
 	}
-	currency := strings.ToUpper(strings.TrimSpace(req.Currency))
-	if len(currency) != currencyLen || !isAlpha(currency) {
-		return errs.NewBadRequestError("currency must be a 3-letter code", true, nil, nil, nil)
+	if _, ok := model.NormalizeCurrency(req.Currency); !ok {
+		return errs.NewInvalidFieldError("INVALID_CURRENCY", "currency is not supported", "currency")
 	}
 	return nil
-}
-
-func isAlpha(s string) bool {
-	for _, r := range s {
-		if !unicode.IsLetter(r) {
-			return false
-		}
-	}
-	return true
 }
 
 func toPaymentResponse(p service.Payment) model.PaymentResponse {

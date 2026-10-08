@@ -83,6 +83,36 @@ func TestGetPayment_NotFound(t *testing.T) {
 	}
 }
 
+func TestCreatePayment_InvalidAmount(t *testing.T) {
+	resetDB(t)
+	r := testRouter(t)
+
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(0, "USD"))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
+	}
+	body := decodePayment(t, rec)
+	errObj, _ := body["error"].(map[string]any)
+	if errObj["code"] != "INVALID_AMOUNT" || errObj["field"] != "amount" {
+		t.Fatalf("error: %+v", errObj)
+	}
+}
+
+func TestCreatePayment_UnsupportedCurrency(t *testing.T) {
+	resetDB(t)
+	r := testRouter(t)
+
+	rec := postPayment(t, r, seedAPIKey(), randomKey(), paymentJSON(5000, "XYZ"))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
+	}
+	body := decodePayment(t, rec)
+	errObj, _ := body["error"].(map[string]any)
+	if errObj["code"] != "INVALID_CURRENCY" || errObj["field"] != "currency" {
+		t.Fatalf("error: %+v", errObj)
+	}
+}
+
 func TestGetPayment_OK(t *testing.T) {
 	resetDB(t)
 	r := testRouter(t)

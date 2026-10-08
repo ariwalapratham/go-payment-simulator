@@ -4,6 +4,7 @@ package errs
 type ErrorBody struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`
+	Field     string `json:"field,omitempty"`
 	RequestID string `json:"request_id"`
 }
 
@@ -16,6 +17,7 @@ func NewErrorResponse(e *HTTPError, requestID string) ErrorResponse {
 		Error: ErrorBody{
 			Code:      e.Code,
 			Message:   e.Message,
+			Field:     e.Field,
 			RequestID: requestID,
 		},
 	}

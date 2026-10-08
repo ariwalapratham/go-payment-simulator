@@ -67,6 +67,17 @@ func ValidationError(err error) *HTTPError {
 	return NewBadRequestError("Validation failed: "+err.Error(), false, nil, nil, nil)
 }
 
+// NewInvalidFieldError is a 400 with error.field set (api-db-new-changes §4).
+func NewInvalidFieldError(code, message, field string) *HTTPError {
+	return &HTTPError{
+		Code:     code,
+		Message:  message,
+		Status:   http.StatusBadRequest,
+		Override: true,
+		Field:    field,
+	}
+}
+
 func NewConflictError(code, message string) *HTTPError {
 	return &HTTPError{
 		Code:     code,

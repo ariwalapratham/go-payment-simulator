@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ariwalapratham/go-payment-simulator/internal/middleware"
+	"github.com/ariwalapratham/go-payment-simulator/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -22,7 +23,7 @@ func TestRequireAPIKey(t *testing.T) {
 		if key == "sk_test_ok" {
 			return want, nil
 		}
-		return uuid.Nil, errors.New("nope")
+		return uuid.Nil, service.ErrMerchantNotFound
 	}))
 	r.GET("/x", func(c *gin.Context) {
 		if middleware.MerchantIDFrom(c) != want {
@@ -74,6 +75,27 @@ func TestRequireAPIKeyRejectsMerchantID(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("merchant id header: got %d", rec.Code)
+	}
+}
+
+func TestRequireAPIKeyLookupInfraError(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(middleware.ErrorHandler(), middleware.RequireAPIKey(func(_ context.Context, _ string) (uuid.UUID, error) {
+		return uuid.Nil, errors.New("db down")
+	}))
+	r.GET("/x", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Header.Set(middleware.HeaderAPIKey, "sk_test_ok")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("infra lookup: got %d", rec.Code)
 	}
 }
 

@@ -17,6 +17,10 @@ func Logger(log *zerolog.Logger) gin.HandlerFunc {
 
 		c.Next()
 
+		if log == nil {
+			return
+		}
+
 		status := c.Writer.Status()
 		lat := time.Since(start)
 
@@ -32,7 +36,11 @@ func Logger(log *zerolog.Logger) gin.HandlerFunc {
 
 		switch {
 		case status >= http.StatusInternalServerError:
-			entry.Error().Msg("request failed")
+			ev := entry.Error()
+			if ginErr := c.Errors.Last(); ginErr != nil {
+				ev = ev.Err(ginErr.Err)
+			}
+			ev.Msg("request failed")
 		case status >= http.StatusBadRequest:
 			entry.Warn().Msg("request completed with client error")
 		default:

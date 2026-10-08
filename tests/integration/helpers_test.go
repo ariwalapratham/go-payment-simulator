@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ariwalapratham/go-payment-simulator/internal/database"
 	"github.com/ariwalapratham/go-payment-simulator/internal/handler"
 	"github.com/ariwalapratham/go-payment-simulator/internal/middleware"
 	"github.com/ariwalapratham/go-payment-simulator/internal/model"
@@ -62,6 +63,7 @@ func testRouter(t *testing.T) *gin.Engine {
 	s := &server.Server{
 		Config: &cfg,
 		Logger: &log,
+		DB:     &database.Database{Pool: testPool},
 	}
 	repo := repository.NewPaymentRepository(testPool)
 	merchantSvc := service.NewMerchantService(repository.NewMerchantRepository(testPool))

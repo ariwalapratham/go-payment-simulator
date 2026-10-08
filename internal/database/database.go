@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -128,4 +129,12 @@ func (db *Database) Close() error {
 	db.log.Info().Msg("closing database connection pool")
 	db.Pool.Close()
 	return nil
+}
+
+// Ping is a bounded readiness check against the pool.
+func (db *Database) Ping(ctx context.Context) error {
+	if db == nil || db.Pool == nil {
+		return errors.New("database unreachable")
+	}
+	return db.Pool.Ping(ctx)
 }

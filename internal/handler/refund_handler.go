@@ -47,7 +47,7 @@ func (h *RefundHandler) Create(c *gin.Context) {
 	}
 	if req.Amount <= 0 {
 		log.Warn().Int64("amount", req.Amount).Str("merchant_id", merchantID.String()).Msg("create refund invalid amount")
-		middleware.AbortWithError(c, errs.NewBadRequestError("amount must be greater than 0", true, nil, nil, nil))
+		middleware.AbortWithError(c, errs.NewInvalidFieldError("INVALID_AMOUNT", "amount must be a positive integer", "amount"))
 		return
 	}
 
