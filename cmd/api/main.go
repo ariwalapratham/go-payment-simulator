@@ -110,14 +110,17 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	stopWorkers()
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := srv.ShutdownHTTP(shutdownCtx); err != nil {
+	httpCtx, cancelHTTP := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := srv.ShutdownHTTP(httpCtx); err != nil {
 		log.Error().Err(err).Msg("http shutdown failed")
 	}
+	cancelHTTP()
 
+	stopWorkers()
+
+	drain := time.Duration(max(cfg.Bank.CallTimeout, cfg.Webhook.CallTimeoutSec)+6) * time.Second
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), drain)
+	defer cancelWait()
 	done := make(chan struct{})
 	go func() {
 		payWorker.Wait()
@@ -126,7 +129,7 @@ func main() {
 	}()
 	select {
 	case <-done:
-	case <-shutdownCtx.Done():
+	case <-waitCtx.Done():
 		log.Error().Msg("worker shutdown timed out")
 	}
 

@@ -215,13 +215,13 @@ func TestProcessorShutdownSkipsClaim(t *testing.T) {
 	}
 }
 
-func TestProcessorCancelDuringAuthorizeReleasesLease(t *testing.T) {
+func TestProcessorCancelDuringAuthorizeStillPersists(t *testing.T) {
 	t.Parallel()
 
 	store := &fakeStore{job: pendingJob()}
 	gw := &fakeBank{
 		outcomes: []bank.Outcome{bank.OutcomeSuccess},
-		delay:    time.Second,
+		delay:    50 * time.Millisecond,
 		started:  make(chan struct{}),
 	}
 	p, err := service.NewPaymentProcessor(store, gw, testRetry(5), 2*time.Second, 3*time.Second, nil, nil)
@@ -244,8 +244,8 @@ func TestProcessorCancelDuringAuthorizeReleasesLease(t *testing.T) {
 		t.Fatalf("applied %+v", store.applied)
 	}
 	got := store.applied[0]
-	if got.Status != model.PaymentStatusPending || got.AttemptCount != 0 {
-		t.Fatalf("lease release %+v", got)
+	if got.Status != model.PaymentStatusAuthorized {
+		t.Fatalf("want AUTHORIZED, got %+v", got)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -31,6 +32,7 @@ type receivedWebhook struct {
 	Type      string
 	Body      []byte
 	Signature string
+	Timestamp int64
 }
 
 func (c *webhookCapture) handler(secret string) http.HandlerFunc {
@@ -40,8 +42,13 @@ func (c *webhookCapture) handler(secret string) http.HandlerFunc {
 			http.Error(w, "read body", http.StatusInternalServerError)
 			return
 		}
+		ts, err := strconv.ParseInt(r.Header.Get("X-Webhook-Timestamp"), 10, 64)
+		if err != nil {
+			http.Error(w, "bad timestamp", http.StatusUnauthorized)
+			return
+		}
 		sig := r.Header.Get("X-Webhook-Signature")
-		if !webhook.VerifySignature(secret, body, sig) {
+		if !webhook.VerifySignature(secret, ts, body, sig, time.Now(), webhook.DefaultSignatureSkew) {
 			http.Error(w, "bad signature", http.StatusUnauthorized)
 			return
 		}
@@ -57,6 +64,7 @@ func (c *webhookCapture) handler(secret string) http.HandlerFunc {
 			Type:      doc.Type,
 			Body:      body,
 			Signature: sig,
+			Timestamp: ts,
 		})
 		if c.failLeft > 0 {
 			c.failLeft--
@@ -231,7 +239,7 @@ func TestWebhookAuthorizedAndCaptured(t *testing.T) {
 	if capData["payment_id"] != paymentID || capData["status"] != "CAPTURED" {
 		t.Fatalf("captured data: %v", capData)
 	}
-	if !webhook.VerifySignature(testMerchantWebhookSecret, capEv.Body, capEv.Signature) {
+	if !webhook.VerifySignature(testMerchantWebhookSecret, capEv.Timestamp, capEv.Body, capEv.Signature, time.Now(), webhook.DefaultSignatureSkew) {
 		t.Fatal("captured signature invalid")
 	}
 }
@@ -279,7 +287,7 @@ func TestWebhookRefunded(t *testing.T) {
 	if data["payment_id"] != paymentID || data["status"] != "REFUNDED" {
 		t.Fatalf("refunded data: %v", data)
 	}
-	if !webhook.VerifySignature(testMerchantWebhookSecret, refEv.Body, refEv.Signature) {
+	if !webhook.VerifySignature(testMerchantWebhookSecret, refEv.Timestamp, refEv.Body, refEv.Signature, time.Now(), webhook.DefaultSignatureSkew) {
 		t.Fatal("refunded signature invalid")
 	}
 }

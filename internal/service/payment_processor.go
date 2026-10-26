@@ -90,15 +90,12 @@ func (p *PaymentProcessor) ProcessNext(ctx context.Context) error {
 		}
 		return err
 	}
-	return p.process(ctx, job)
+	return p.process(context.WithoutCancel(ctx), job)
 }
 
 func (p *PaymentProcessor) process(ctx context.Context, job *repository.PaymentRecord) error {
 	if job.Payment.Status != model.PaymentStatusPending {
 		return nil
-	}
-	if ctx.Err() != nil {
-		return p.releaseClaim(ctx, job)
 	}
 
 	callCtx, cancel := context.WithTimeout(ctx, p.callTimeout)
@@ -111,9 +108,6 @@ func (p *PaymentProcessor) process(ctx context.Context, job *repository.PaymentR
 		Currency:         job.Payment.Currency,
 	})
 	if err != nil {
-		if ctx.Err() != nil {
-			return p.releaseClaim(ctx, job)
-		}
 		res.Outcome = bank.OutcomeTimeout
 		res.Message = err.Error()
 	}
@@ -163,26 +157,6 @@ func (p *PaymentProcessor) persist(ctx context.Context, job *repository.PaymentR
 		return false, fmt.Errorf("apply authorize %s: %w", job.Payment.PublicID, err)
 	}
 	return true, nil
-}
-
-func (p *PaymentProcessor) releaseClaim(ctx context.Context, job *repository.PaymentRecord) error {
-	applied, err := p.persist(ctx, job, repository.ApplyAuthorizeInput{
-		PaymentID:            job.Payment.ID,
-		ExpectedAttemptCount: job.Payment.AttemptCount,
-		Status:               model.PaymentStatusPending,
-		AttemptCount:         job.Payment.AttemptCount,
-		NextAttemptAt:        p.now(),
-		LastError:            job.Payment.LastError,
-	})
-	if err != nil || !applied {
-		return err
-	}
-	p.evt(ctx).
-		Str("payment_id", job.Payment.PublicID.String()).
-		Str("event", "payment.authorize_claim_released").
-		Str("reason", "shutdown").
-		Msg("authorize claim released")
-	return nil
 }
 
 func (p *PaymentProcessor) logAuthorize(ctx context.Context, job *repository.PaymentRecord, outcome bank.Outcome, d Decision) {

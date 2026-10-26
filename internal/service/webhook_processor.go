@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/ariwalapratham/go-payment-simulator/internal/observability"
@@ -22,7 +23,6 @@ type webhookStore interface {
 	ClaimDueWebhookDelivery(ctx context.Context, lease time.Duration) (*repository.WebhookDeliveryJob, error)
 	MarkWebhookDelivered(ctx context.Context, deliveryID int64) error
 	RecordWebhookFailure(ctx context.Context, deliveryID int64, lastError string, nextAttemptAt time.Time, failed bool) error
-	ReleaseWebhookDeliveryLease(ctx context.Context, deliveryID int64) error
 }
 
 // WebhookProcessor delivers one leased webhook per ProcessNext call.
@@ -91,10 +91,11 @@ func (p *WebhookProcessor) ProcessNext(ctx context.Context) error {
 		}
 		return err
 	}
+	workCtx := context.WithoutCancel(ctx)
 	if job.TargetURL == "" {
-		return p.persistDelivered(ctx, job)
+		return p.persistDelivered(workCtx, job)
 	}
-	return p.deliver(ctx, job)
+	return p.deliver(workCtx, job)
 }
 
 func (p *WebhookProcessor) deliver(ctx context.Context, job *repository.WebhookDeliveryJob) error {
@@ -102,7 +103,8 @@ func (p *WebhookProcessor) deliver(ctx context.Context, job *repository.WebhookD
 	if err != nil {
 		return fmt.Errorf("marshal webhook %s: %w", job.Event.PublicID, err)
 	}
-	signature := webhook.SignBody(job.TargetSecret, body)
+	ts := p.now().UTC().Unix()
+	signature := webhook.SignBody(job.TargetSecret, ts, body)
 
 	callCtx, cancel := context.WithTimeout(ctx, p.callTimeout)
 	defer cancel()
@@ -112,14 +114,12 @@ func (p *WebhookProcessor) deliver(ctx context.Context, job *repository.WebhookD
 		return p.persistFailure(ctx, job, "build request")
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Webhook-Timestamp", strconv.FormatInt(ts, 10))
 	req.Header.Set("X-Webhook-Signature", signature)
 	req.Header.Set("X-Webhook-Event-Id", job.Event.PublicID.String())
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return p.releaseLease(job, ctx.Err())
-		}
 		return p.persistFailure(ctx, job, "http client error")
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -176,13 +176,4 @@ func (p *WebhookProcessor) persistFailure(ctx context.Context, job *repository.W
 		e.Str("event", "webhook.retry_scheduled").Msg("webhook delivery retry scheduled")
 	}
 	return nil
-}
-
-func (p *WebhookProcessor) releaseLease(job *repository.WebhookDeliveryJob, cause error) error {
-	dbCtx, cancel := context.WithTimeout(context.Background(), persistTimeout)
-	defer cancel()
-	if err := p.store.ReleaseWebhookDeliveryLease(dbCtx, job.DeliveryID); err != nil {
-		return fmt.Errorf("release webhook lease %s: %w", job.Event.PublicID, err)
-	}
-	return cause
 }

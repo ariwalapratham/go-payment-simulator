@@ -39,8 +39,9 @@ func TestMarshalOutboundRoundTrip(t *testing.T) {
 		t.Fatalf("created_at: %s", doc["created_at"])
 	}
 
-	sig := webhook.SignBody("test-secret", body)
-	if !webhook.VerifySignature("test-secret", body, sig) {
+	ts := created.Unix()
+	sig := webhook.SignBody("test-secret", ts, body)
+	if !webhook.VerifySignature("test-secret", ts, body, sig, created, webhook.DefaultSignatureSkew) {
 		t.Fatal("signature mismatch on marshaled body")
 	}
 }

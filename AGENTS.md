@@ -89,5 +89,5 @@ Client → Router → Middleware → Handler → Service → Repository → DB.
 - Idempotency: header `Idempotency-Key`; merchant from `X-Api-Key` (payments/refunds and `/merchant/me`). Do not accept `X-Merchant-Id`, body, or query `merchant_id`
 - Admin: header `X-Admin-Key` = `PAYMENTS_ADMIN_API_KEY` (fail closed if unset)
 - Merchant API key: header `X-Api-Key` (plaintext `sk_test_…`; store only `api_key_hash`; never log plaintext)
-- Webhook outbound: `X-Webhook-Signature`, `X-Webhook-Event-Id`, body `{id,type,created_at,data}` per `api-db-new-changes` §3.11
+- Webhook outbound: `X-Webhook-Timestamp` (unix seconds) + `X-Webhook-Signature` = HMAC-SHA256(secret, `timestamp + "." + body`); verify ±5m skew; `X-Webhook-Event-Id`; body `{id,type,created_at,data}` per `api-db-new-changes` §3.11
 - Integration tests create a merchant via `MerchantService.Create` (same as admin) and use the returned `api_key`

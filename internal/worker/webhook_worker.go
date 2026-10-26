@@ -45,7 +45,7 @@ func NewWebhookWorker(proc WebhookProcessor, poolSize int, pollInterval time.Dur
 	return w
 }
 
-// Start runs poolSize loops until ctx is canceled.
+// Start runs poolSize loops until ctx is canceled. Wait after cancel to drain in-flight work.
 func (w *WebhookWorker) Start(ctx context.Context) {
 	for id := range w.poolSize {
 		w.wg.Add(1)
