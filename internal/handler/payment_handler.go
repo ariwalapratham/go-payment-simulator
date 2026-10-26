@@ -2,9 +2,13 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 
+	"github.com/ariwalapratham/go-payment-simulator/internal/config"
 	"github.com/ariwalapratham/go-payment-simulator/internal/errs"
 	"github.com/ariwalapratham/go-payment-simulator/internal/middleware"
 	"github.com/ariwalapratham/go-payment-simulator/internal/model"
@@ -16,13 +20,27 @@ import (
 )
 
 type PaymentHandler struct {
-	payments *service.PaymentService
-	log      zerolog.Logger
+	payments    *service.PaymentService
+	log         zerolog.Logger
+	listDefault int
+	listMax     int
 }
 
 // NewPaymentHandler wires POST/GET /v1/payments plus capture and cancel.
-func NewPaymentHandler(payments *service.PaymentService, log *zerolog.Logger) *PaymentHandler {
-	h := &PaymentHandler{payments: payments, log: zerolog.Nop()}
+func NewPaymentHandler(payments *service.PaymentService, log *zerolog.Logger, list config.ListConfig) *PaymentHandler {
+	d := config.DefaultListConfig()
+	if list.DefaultLimit <= 0 {
+		list.DefaultLimit = d.DefaultLimit
+	}
+	if list.MaxLimit <= 0 {
+		list.MaxLimit = d.MaxLimit
+	}
+	h := &PaymentHandler{
+		payments:    payments,
+		log:         zerolog.Nop(),
+		listDefault: list.DefaultLimit,
+		listMax:     list.MaxLimit,
+	}
 	if log != nil {
 		h.log = *log
 	}
@@ -83,6 +101,47 @@ func (h *PaymentHandler) Create(c *gin.Context) {
 	c.JSON(status, resp)
 }
 
+// List handles GET /v1/payments for the merchant authenticated by X-Api-Key.
+func (h *PaymentHandler) List(c *gin.Context) {
+	log := h.reqLog(c)
+	merchantID := middleware.MerchantIDFrom(c)
+
+	status, limit, afterID, err := h.parseListQuery(c)
+	if err != nil {
+		log.Warn().Err(err).Str("merchant_id", merchantID.String()).Msg("list payments invalid query")
+		middleware.AbortWithError(c, err)
+		return
+	}
+
+	if h.payments == nil {
+		notImplemented(c)
+		return
+	}
+
+	items, nextAfterID, err := h.payments.List(c.Request.Context(), merchantID, status, limit, afterID)
+	if err != nil {
+		log.Warn().Err(err).Str("merchant_id", merchantID.String()).Msg("list payments failed")
+		middleware.AbortWithError(c, httpPaymentErr(err))
+		return
+	}
+
+	data := make([]model.PaymentResponse, 0, len(items))
+	for i := range items {
+		data = append(data, toPaymentResponse(items[i]))
+	}
+	var nextCursor *string
+	if nextAfterID > 0 {
+		encoded := encodeListCursor(nextAfterID)
+		nextCursor = &encoded
+	}
+	log.Info().
+		Str("merchant_id", merchantID.String()).
+		Int("count", len(data)).
+		Bool("has_more", nextCursor != nil).
+		Msg("list payments")
+	c.JSON(http.StatusOK, model.PaymentListResponse{Data: data, NextCursor: nextCursor})
+}
+
 // Get handles GET /v1/payments/:id for the merchant authenticated by X-Api-Key.
 func (h *PaymentHandler) Get(c *gin.Context) {
 	h.loadPayment(c, "get payment", h.payments.Get)
@@ -141,10 +200,10 @@ func (h *PaymentHandler) reqLog(c *gin.Context) zerolog.Logger {
 	return h.log.With().Str("request_id", middleware.GetRequestID(c)).Logger()
 }
 
-// registerPaymentRoutes mounts POST/GET /v1/payments plus capture, cancel, and refund.
+// registerPaymentRoutes mounts POST/GET /v1/payments plus get, capture, cancel, and refund.
 func registerPaymentRoutes(rg *gin.RouterGroup, mw *middleware.Middlewares, h *PaymentHandler, refunds *RefundHandler) {
 	if h == nil {
-		h = NewPaymentHandler(nil, nil)
+		h = NewPaymentHandler(nil, nil, config.ListConfig{})
 	}
 	if refunds == nil {
 		refunds = NewRefundHandler(nil, nil)
@@ -152,6 +211,7 @@ func registerPaymentRoutes(rg *gin.RouterGroup, mw *middleware.Middlewares, h *P
 	g := rg.Group("/payments")
 	g.Use(mw.APIKey)
 	g.POST("", mw.IdempotencyKey, h.Create)
+	g.GET("", h.List)
 	g.GET("/:id", h.Get)
 	g.POST("/:id/capture", h.Capture)
 	g.POST("/:id/cancel", h.Cancel)
@@ -167,6 +227,57 @@ func validateCreateRequest(req model.CreatePaymentRequest) error {
 		return errs.NewInvalidFieldError("INVALID_CURRENCY", "currency is not supported", "currency")
 	}
 	return nil
+}
+
+func (h *PaymentHandler) parseListQuery(c *gin.Context) (*model.PaymentStatus, int, int64, error) {
+	var status *model.PaymentStatus
+	if raw := strings.TrimSpace(c.Query("status")); raw != "" {
+		s, err := model.ParsePaymentStatus(raw)
+		if err != nil {
+			return nil, 0, 0, errs.NewInvalidFieldError("INVALID_STATUS", "status is not supported", "status")
+		}
+		status = &s
+	}
+
+	limit := h.listDefault
+	if raw := c.Query("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return nil, 0, 0, errs.NewInvalidFieldError("INVALID_LIMIT", "limit must be a non-negative integer", "limit")
+		}
+		if n > 0 {
+			limit = n
+		}
+	}
+	if limit > h.listMax {
+		limit = h.listMax
+	}
+
+	var afterID int64
+	if raw := strings.TrimSpace(c.Query("cursor")); raw != "" {
+		id, err := decodeListCursor(raw)
+		if err != nil {
+			return nil, 0, 0, errs.NewInvalidFieldError("INVALID_CURSOR", "cursor is invalid", "cursor")
+		}
+		afterID = id
+	}
+	return status, limit, afterID, nil
+}
+
+func encodeListCursor(id int64) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(id, 10)))
+}
+
+func decodeListCursor(raw string) (int64, error) {
+	b, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return 0, err
+	}
+	id, err := strconv.ParseInt(string(b), 10, 64)
+	if err != nil || id < 1 {
+		return 0, strconv.ErrSyntax
+	}
+	return id, nil
 }
 
 func toPaymentResponse(p service.Payment) model.PaymentResponse {

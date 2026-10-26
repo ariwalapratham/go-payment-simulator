@@ -25,6 +25,12 @@ func (f *fakePayments) GetPaymentByPublicID(context.Context, uuid.UUID, uuid.UUI
 	return nil, repository.ErrPaymentNotFound
 }
 
+func (f *fakePayments) ListPayments(
+	context.Context, uuid.UUID, *model.PaymentStatus, int64, int,
+) ([]repository.PaymentRecord, error) {
+	return nil, errors.New("unused")
+}
+
 func (f *fakePayments) TransitionPayment(
 	_ context.Context, _, _ uuid.UUID, next model.PaymentStatus,
 ) (*repository.PaymentRecord, error) {

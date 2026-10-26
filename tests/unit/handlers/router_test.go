@@ -40,7 +40,7 @@ func testRouter() *gin.Engine {
 	return handler.NewRouter(
 		s,
 		middleware.NewMiddlewares(s, unitAPIKeyLookup),
-		handler.NewPaymentHandler(nil, &log),
+		handler.NewPaymentHandler(nil, &log, config.ListConfig{}),
 		handler.NewRefundHandler(nil, &log),
 		handler.NewAdminMerchantHandler(nil, &log),
 		handler.NewMerchantHandler(nil, &log),
@@ -154,6 +154,7 @@ func TestPaymentAndRefundRoutesRequireAPIKey(t *testing.T) {
 		method, path, body string
 	}{
 		{http.MethodPost, "/v1/payments", `{"amount":5000,"currency":"USD"}`},
+		{http.MethodGet, "/v1/payments", ""},
 		{http.MethodGet, "/v1/payments/" + paymentID, ""},
 		{http.MethodPost, "/v1/payments/" + paymentID + "/capture", ""},
 		{http.MethodPost, "/v1/payments/" + paymentID + "/cancel", ""},

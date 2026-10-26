@@ -75,7 +75,7 @@ func testRouter(t *testing.T) *gin.Engine {
 	testMerchantPublicID = created.PublicID.String()
 	testMerchantWebhookSecret = created.WebhookSecret
 
-	payments := handler.NewPaymentHandler(service.NewPaymentService(repo), &log)
+	payments := handler.NewPaymentHandler(service.NewPaymentService(repo), &log, cfg.List)
 	refunds := handler.NewRefundHandler(service.NewRefundService(repo), &log)
 	admin := handler.NewAdminMerchantHandler(merchantSvc, &log)
 	merchants := handler.NewMerchantHandler(merchantSvc, &log)

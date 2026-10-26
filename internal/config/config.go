@@ -19,6 +19,7 @@ type Config struct {
 	Bank          BankConfig           `koanf:"bank"`
 	Worker        WorkerConfig         `koanf:"worker"`
 	Webhook       WebhookConfig        `koanf:"webhook"`
+	List          ListConfig           `koanf:"list"`
 	Observability *ObservabilityConfig `koanf:"observability"`
 }
 
@@ -109,6 +110,11 @@ func LoadConfig() (*Config, error) {
 		logger.Fatal().Err(err).Msg("invalid webhook config")
 	}
 
+	mainConfig.List.applyDefaults()
+	if err := mainConfig.List.Validate(); err != nil {
+		logger.Fatal().Err(err).Msg("invalid list config")
+	}
+
 	return mainConfig, nil
 }
 
@@ -136,6 +142,10 @@ func envKeyTransform(raw string) string {
 
 	if strings.HasPrefix(key, "webhook_") {
 		return "webhook." + strings.TrimPrefix(key, "webhook_")
+	}
+
+	if strings.HasPrefix(key, "list_") {
+		return "list." + strings.TrimPrefix(key, "list_")
 	}
 
 	if strings.HasPrefix(key, "observability_") {

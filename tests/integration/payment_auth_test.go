@@ -23,6 +23,7 @@ func TestPaymentRoutesUnauthorizedWithoutAPIKey(t *testing.T) {
 		idempotency        bool
 	}{
 		{http.MethodPost, "/v1/payments", paymentJSON(5000, "USD"), true},
+		{http.MethodGet, "/v1/payments", "", false},
 		{http.MethodGet, "/v1/payments/" + id, "", false},
 		{http.MethodPost, "/v1/payments/" + id + "/capture", "", false},
 		{http.MethodPost, "/v1/payments/" + id + "/cancel", "", false},

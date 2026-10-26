@@ -140,7 +140,7 @@ func mountHTTP(srv *server.Server, repo *repository.PaymentRepository) {
 	router := handler.NewRouter(
 		srv,
 		middleware.NewMiddlewares(srv, merchantSvc.PublicIDByAPIKey),
-		handler.NewPaymentHandler(service.NewPaymentService(repo), srv.Logger),
+		handler.NewPaymentHandler(service.NewPaymentService(repo), srv.Logger, srv.Config.List),
 		handler.NewRefundHandler(service.NewRefundService(repo), srv.Logger),
 		handler.NewAdminMerchantHandler(merchantSvc, srv.Logger),
 		handler.NewMerchantHandler(merchantSvc, srv.Logger),

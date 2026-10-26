@@ -30,6 +30,7 @@ type Payment struct {
 type paymentRepository interface {
 	CreatePaymentIdempotent(context.Context, repository.CreatePaymentInput) (*repository.PaymentRecord, bool, error)
 	GetPaymentByPublicID(context.Context, uuid.UUID, uuid.UUID) (*repository.PaymentRecord, error)
+	ListPayments(context.Context, uuid.UUID, *model.PaymentStatus, int64, int) ([]repository.PaymentRecord, error)
 	TransitionPayment(context.Context, uuid.UUID, uuid.UUID, model.PaymentStatus) (*repository.PaymentRecord, error)
 }
 
@@ -37,7 +38,7 @@ type PaymentService struct {
 	payments paymentRepository
 }
 
-// NewPaymentService orchestrates create/get/capture/cancel; no HTTP types.
+// NewPaymentService orchestrates create/get/list/capture/cancel; no HTTP types.
 func NewPaymentService(payments paymentRepository) *PaymentService {
 	return &PaymentService{payments: payments}
 }
@@ -75,6 +76,33 @@ func (s *PaymentService) Get(
 		return Payment{}, mapRepoErr(err)
 	}
 	return toPayment(rec), nil
+}
+
+// List returns a merchant-scoped page. nextAfterID is 0 on the last page.
+func (s *PaymentService) List(
+	ctx context.Context,
+	merchantPublicID uuid.UUID,
+	status *model.PaymentStatus,
+	limit int,
+	afterID int64,
+) ([]Payment, int64, error) {
+	rows, err := s.payments.ListPayments(ctx, merchantPublicID, status, afterID, limit+1)
+	if err != nil {
+		return nil, 0, mapRepoErr(err)
+	}
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[:limit]
+	}
+	out := make([]Payment, len(rows))
+	for i := range rows {
+		out[i] = toPayment(&rows[i])
+	}
+	var nextAfterID int64
+	if hasMore && len(rows) > 0 {
+		nextAfterID = rows[len(rows)-1].Payment.ID
+	}
+	return out, nextAfterID, nil
 }
 
 // Capture moves an AUTHORIZED payment to CAPTURED.

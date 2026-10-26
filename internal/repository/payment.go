@@ -100,6 +100,54 @@ WHERE p.public_id = $1 AND m.public_id = $2`
 	return rec, nil
 }
 
+// ListPayments returns merchant-scoped payments with id > afterID, oldest first.
+func (r *PaymentRepository) ListPayments(
+	ctx context.Context,
+	merchantPublicID uuid.UUID,
+	status *model.PaymentStatus,
+	afterID int64,
+	limit int,
+) ([]PaymentRecord, error) {
+	const q = `
+SELECT p.id, p.public_id, p.merchant_id, p.amount, p.currency, p.status,
+       p.attempt_count, p.next_attempt_at, p.last_error, p.created_at, p.updated_at,
+       m.public_id, m.webhook_url
+FROM payments p
+JOIN merchants m ON m.id = p.merchant_id
+WHERE m.public_id = $1
+  AND ($2::text IS NULL OR p.status = $2)
+  AND p.id > $3
+ORDER BY p.id ASC
+LIMIT $4`
+
+	rows, err := r.pool.Query(ctx, q, merchantPublicID, stringStatus(status), afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list payments: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]PaymentRecord, 0)
+	for rows.Next() {
+		rec, err := scanPaymentRecord(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list payments: %w", err)
+		}
+		out = append(out, *rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list payments: %w", err)
+	}
+	return out, nil
+}
+
+func stringStatus(s *model.PaymentStatus) *string {
+	if s == nil {
+		return nil
+	}
+	v := s.String()
+	return &v
+}
+
 // TransitionPayment locks the merchant-scoped payment and applies next if the state machine allows it.
 // Concurrent capture/cancel serialize on FOR UPDATE; the loser gets ErrInvalidTransition.
 func (r *PaymentRepository) TransitionPayment(

@@ -4,7 +4,7 @@
 Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`, `docs/api-db-design-payment-simulator.md`, `docs/db-latest-design.md`, and `docs/api-db-new-changes.md` (merchant admin + webhook delivery contract).
 
 ## Phase
-**Health + validation envelope complete** — `/healthz` (liveness), `/readyz` (DB ping), `error.field` on 400s, currency allowlist. API-key auth on payments/refunds already done. Outbound shape: `docs/api-db-new-changes.md` §3.11 (not older ARD §3.8).
+**Payment list complete** — `GET /v1/payments` cursor page (FR27–28). Health + validation envelope and API-key auth already done. Outbound shape: `docs/api-db-new-changes.md` §3.11 (not older ARD §3.8).
 
 ## Package map (actual vs doc)
 - HTTP: `internal/handler` + `internal/middleware` (doc: `internal/http`)
@@ -47,13 +47,13 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] API-key auth on payments/refunds (Addendum 2 §2): `X-Api-Key` → `merchant_id` in context; missing/invalid → 401; `X-Merchant-Id` rejected; rotate-key invalidates immediately
 - [x] `GET /healthz` (FR32, no DB) + `GET /readyz` (FR33, DB ping 503); `/v1/health` kept as liveness alias
 - [x] Validation envelope `error.field` (FR29–31, §4): amount > 0; currency allowlist USD/EUR/GBP/INR/JPY/CAD/AUD
+- [x] `GET /v1/payments` list/cursor (FR27–28, `api-db-new-changes` §3.8): optional `status`, `limit` default 20 max 100 (`PAYMENTS_LIST_*`), opaque base64 cursor of internal `payments.id`
 
 ## In progress
 - (none)
 
 ## Explicitly deferred (do not implement yet)
 - Prometheus `/metrics`
-- `GET /v1/payments` list/cursor (`api-db-new-changes` §3.8)
 
 ## Commands
 - `task up` / `task down`

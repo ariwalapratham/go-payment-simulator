@@ -38,3 +38,9 @@ func NewPaymentResponse(
 		UpdatedAt:  updatedAt,
 	}
 }
+
+// PaymentListResponse is GET /v1/payments. next_cursor is null on the last page.
+type PaymentListResponse struct {
+	Data       []PaymentResponse `json:"data"`
+	NextCursor *string           `json:"next_cursor"`
+}
