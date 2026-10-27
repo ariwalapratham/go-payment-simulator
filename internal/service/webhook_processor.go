@@ -32,16 +32,18 @@ type WebhookProcessor struct {
 	retry       RetryConfig
 	lease       time.Duration
 	callTimeout time.Duration
+	metrics     observability.WebhookMetrics
 	log         zerolog.Logger
 	now         func() time.Time
 }
 
-// NewWebhookProcessor wires outbound delivery. httpClient may be nil (default with callTimeout).
+// NewWebhookProcessor wires outbound delivery. httpClient and metrics may be nil.
 func NewWebhookProcessor(
 	store webhookStore,
 	retry RetryConfig,
 	callTimeout, lease time.Duration,
 	log *zerolog.Logger,
+	metrics observability.WebhookMetrics,
 	httpClient *http.Client,
 ) (*WebhookProcessor, error) {
 	if store == nil {
@@ -70,8 +72,12 @@ func NewWebhookProcessor(
 		retry:       retry,
 		lease:       lease,
 		callTimeout: callTimeout,
+		metrics:     metrics,
 		log:         zerolog.Nop(),
 		now:         time.Now,
+	}
+	if p.metrics == nil {
+		p.metrics = observability.NopWebhookMetrics{}
 	}
 	if log != nil {
 		p.log = *log
@@ -146,6 +152,7 @@ func (p *WebhookProcessor) persistDelivered(ctx context.Context, job *repository
 		e = e.Int("worker_id", id)
 	}
 	e.Msg("webhook delivered")
+	p.metrics.ObserveWebhookDelivered()
 	return nil
 }
 
@@ -172,8 +179,10 @@ func (p *WebhookProcessor) persistFailure(ctx context.Context, job *repository.W
 	}
 	if failed {
 		e.Str("event", "webhook.failed").Msg("webhook delivery exhausted")
+		p.metrics.ObserveWebhookFailed()
 	} else {
 		e.Str("event", "webhook.retry_scheduled").Msg("webhook delivery retry scheduled")
+		p.metrics.ObserveWebhookRetry()
 	}
 	return nil
 }

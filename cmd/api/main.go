@@ -15,6 +15,7 @@ import (
 	"github.com/ariwalapratham/go-payment-simulator/internal/handler"
 	"github.com/ariwalapratham/go-payment-simulator/internal/logger"
 	"github.com/ariwalapratham/go-payment-simulator/internal/middleware"
+	"github.com/ariwalapratham/go-payment-simulator/internal/observability"
 	"github.com/ariwalapratham/go-payment-simulator/internal/repository"
 	"github.com/ariwalapratham/go-payment-simulator/internal/server"
 	"github.com/ariwalapratham/go-payment-simulator/internal/service"
@@ -47,6 +48,7 @@ func main() {
 	}
 
 	repo := repository.NewPaymentRepository(srv.DB.Pool)
+	metrics := observability.NewMetrics(loggerService.GetApplication())
 	processor, err := service.NewPaymentProcessor(
 		repo,
 		gw,
@@ -59,7 +61,7 @@ func main() {
 		time.Duration(cfg.Bank.CallTimeout)*time.Second,
 		time.Duration(cfg.Worker.LeaseSeconds)*time.Second,
 		srv.Logger,
-		nil,
+		metrics,
 	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("payment processor failed")
@@ -82,6 +84,7 @@ func main() {
 		time.Duration(cfg.Webhook.CallTimeoutSec)*time.Second,
 		time.Duration(cfg.Webhook.LeaseSeconds)*time.Second,
 		srv.Logger,
+		metrics,
 		nil,
 	)
 	if err != nil {
@@ -99,6 +102,7 @@ func main() {
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	payWorker.Start(workerCtx)
 	webhookWorker.Start(workerCtx)
+	observability.StartQueueReporter(workerCtx, metrics, repo.StatusCounts, observability.DefaultQueueInterval)
 
 	go func() {
 		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {

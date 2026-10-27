@@ -14,7 +14,7 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - Workers: `internal/worker` (payment + webhook pools)
 - Webhook: `internal/webhook` (payload §3.11, HMAC signer)
 - Bank: `internal/bank` (`Gateway` + in-process `Simulator`; `bank.NewGateway`)
-- Observability: `internal/observability` (`worker_id` context, `AuthorizeMetrics`)
+- Observability: `internal/observability` (`worker_id` context, New Relic custom metrics; no-op without a license key)
 - DB/migrate: `internal/database`, `migrations/` (embedded SQL)
 
 ## Done
@@ -37,7 +37,7 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] Integration concurrency tests for idempotent create
 - [x] Fake bank port (`bank.Gateway`, simulator, `PAYMENTS_BANK_*` config)
 - [x] Authorize worker pool (DB queue, `SKIP LOCKED` lease, retries/backoff)
-- [x] Authorize worker logs (`worker_id`, `bank_outcome`, transition events) + `AuthorizeMetrics` nop hook
+- [x] Authorize worker logs (`worker_id`, `bank_outcome`, transition events) + `AuthorizeMetrics` (New Relic `Custom/Authorize/*`, nop without a license key)
 - [x] POST `/v1/payments/:id/capture` and `/cancel` with `FOR UPDATE` + `model.Transition`
 - [x] Authorize finalize abandons write when the row is no longer `PENDING` (cancel vs lease)
 - [x] POST `/v1/payments/:id/refund` + GET `/v1/refunds/:id` with `FOR UPDATE` balance math and scoped idempotency
@@ -48,12 +48,13 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] `GET /healthz` (FR32, no DB) + `GET /readyz` (FR33, DB ping 503); `/v1/health` kept as liveness alias
 - [x] Validation envelope `error.field` (FR29–31, §4): amount > 0; currency allowlist USD/EUR/GBP/INR/JPY/CAD/AUD
 - [x] `GET /v1/payments` list/cursor (FR27–28, `api-db-new-changes` §3.8): optional `status`, `limit` default 20 max 100 (`PAYMENTS_LIST_*`), opaque base64 cursor of internal `payments.id`
+- [x] New Relic custom metrics (authorize attempts/outcomes, webhook delivered/retry/failed, payment and webhook-queue gauges); tracing unchanged; no-op without `PAYMENTS_OBSERVABILITY_NEW_RELIC_LICENSE_KEY`
 
 ## In progress
 - (none)
 
 ## Explicitly deferred (do not implement yet)
-- Prometheus `/metrics`
+- (none)
 
 ## Commands
 - `task up` / `task down`
@@ -90,4 +91,5 @@ Client → Router → Middleware → Handler → Service → Repository → DB.
 - Admin: header `X-Admin-Key` = `PAYMENTS_ADMIN_API_KEY` (fail closed if unset)
 - Merchant API key: header `X-Api-Key` (plaintext `sk_test_…`; store only `api_key_hash`; never log plaintext)
 - Webhook outbound: `X-Webhook-Timestamp` (unix seconds) + `X-Webhook-Signature` = HMAC-SHA256(secret, `timestamp + "." + body`); verify ±5m skew; `X-Webhook-Event-Id`; body `{id,type,created_at,data}` per `api-db-new-changes` §3.11
+- Metrics: New Relic `Custom/*` via `RecordCustomMetric` when the app is initialized; no `/metrics` route
 - Integration tests create a merchant via `MerchantService.Create` (same as admin) and use the returned `api_key`

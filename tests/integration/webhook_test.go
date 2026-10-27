@@ -147,7 +147,7 @@ func startWebhookWorker(t *testing.T, retry service.RetryConfig) {
 	requireDB(t)
 	log := zerolog.Nop()
 	repo := repository.NewPaymentRepository(testPool)
-	proc, err := service.NewWebhookProcessor(repo, retry, time.Second, 2*time.Second, &log, nil)
+	proc, err := service.NewWebhookProcessor(repo, retry, time.Second, 2*time.Second, &log, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
