@@ -102,7 +102,7 @@ func main() {
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	payWorker.Start(workerCtx)
 	webhookWorker.Start(workerCtx)
-	observability.StartQueueReporter(workerCtx, metrics, repo.StatusCounts, observability.DefaultQueueInterval)
+	waitQueue := observability.StartQueueReporter(workerCtx, metrics, repo.QueueDepth, observability.DefaultQueueInterval, srv.Logger)
 
 	go func() {
 		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -129,6 +129,7 @@ func main() {
 	go func() {
 		payWorker.Wait()
 		webhookWorker.Wait()
+		waitQueue()
 		close(done)
 	}()
 	select {

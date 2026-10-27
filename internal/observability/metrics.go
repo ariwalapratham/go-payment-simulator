@@ -2,16 +2,18 @@ package observability
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/newrelic/go-agent/v3/newrelic"
+	"github.com/rs/zerolog"
 )
 
 const DefaultQueueInterval = 15 * time.Second
 
 // AuthorizeMetrics is a hook for authorize outcomes.
 type AuthorizeMetrics interface {
-	ObserveAuthorizeAttempt(bankOutcome, toStatus string)
+	ObserveAuthorizeAttempt(bankOutcome, toStatus, merchantID, paymentID string)
 	ObserveAuthorizeRetry()
 	ObserveClaimLost()
 }
@@ -26,9 +28,9 @@ type WebhookMetrics interface {
 // NopAuthorizeMetrics discards observations.
 type NopAuthorizeMetrics struct{}
 
-func (NopAuthorizeMetrics) ObserveAuthorizeAttempt(string, string) {}
-func (NopAuthorizeMetrics) ObserveAuthorizeRetry()                 {}
-func (NopAuthorizeMetrics) ObserveClaimLost()                      {}
+func (NopAuthorizeMetrics) ObserveAuthorizeAttempt(string, string, string, string) {}
+func (NopAuthorizeMetrics) ObserveAuthorizeRetry()                                 {}
+func (NopAuthorizeMetrics) ObserveClaimLost()                                      {}
 
 // NopWebhookMetrics discards observations.
 type NopWebhookMetrics struct{}
@@ -40,6 +42,7 @@ func (NopWebhookMetrics) ObserveWebhookFailed()    {}
 // Metrics records Custom/* values on a New Relic app. A nil app is a no-op.
 type Metrics struct {
 	record func(string, float64)
+	event  func(string, map[string]interface{})
 }
 
 var (
@@ -47,21 +50,27 @@ var (
 	_ WebhookMetrics   = (*Metrics)(nil)
 )
 
-// NewMetrics uses app.RecordCustomMetric. Nil app or nil *Metrics is a no-op.
+// NewMetrics uses app.RecordCustomMetric / RecordCustomEvent. Nil app is a no-op.
 func NewMetrics(app *newrelic.Application) *Metrics {
 	if app == nil {
 		return &Metrics{}
 	}
-	return &Metrics{record: app.RecordCustomMetric}
+	return &Metrics{record: app.RecordCustomMetric, event: app.RecordCustomEvent}
 }
 
-// NewRecorderMetrics records to record. Used by tests.
-func NewRecorderMetrics(record func(string, float64)) *Metrics {
-	return &Metrics{record: record}
+// NewRecorderMetrics records to record/event. Used by tests.
+func NewRecorderMetrics(record func(string, float64), event func(string, map[string]interface{})) *Metrics {
+	return &Metrics{record: record, event: event}
 }
 
-func (m *Metrics) ObserveAuthorizeAttempt(bankOutcome, toStatus string) {
-	m.emit("Custom/Authorize/Attempt/"+bankOutcome+"/"+toStatus, 1)
+func (m *Metrics) ObserveAuthorizeAttempt(bankOutcome, toStatus, merchantID, paymentID string) {
+	m.emit("Custom/Authorize/Attempt", 1)
+	m.emitEvent("AuthorizeAttempt", map[string]interface{}{
+		"bank_outcome": bankOutcome,
+		"to_status":    toStatus,
+		"merchant_id":  merchantID,
+		"payment_id":   paymentID,
+	})
 }
 
 func (m *Metrics) ObserveAuthorizeRetry() { m.emit("Custom/Authorize/Retry", 1) }
@@ -81,19 +90,39 @@ func (m *Metrics) emit(name string, value float64) {
 	m.record(name, value)
 }
 
-// QueueSnapshot returns payment and webhook_delivery counts keyed by status.
-type QueueSnapshot func(context.Context) (payments, webhooks map[string]int64, err error)
-
-// StartQueueReporter records status gauges until ctx is canceled. No-op if metrics are disabled.
-func StartQueueReporter(ctx context.Context, m *Metrics, snap QueueSnapshot, interval time.Duration) {
-	if m == nil || m.record == nil || snap == nil {
+func (m *Metrics) emitEvent(name string, attrs map[string]interface{}) {
+	if m == nil || m.event == nil {
 		return
+	}
+	m.event(name, attrs)
+}
+
+// QueueSnapshot returns pending payment and webhook_delivery counts.
+type QueueSnapshot func(context.Context) (payments, webhooks int64, err error)
+
+// StartQueueReporter records queue gauges until ctx is canceled. Wait after cancel before closing the DB.
+func StartQueueReporter(
+	ctx context.Context,
+	m *Metrics,
+	snap QueueSnapshot,
+	interval time.Duration,
+	log *zerolog.Logger,
+) (wait func()) {
+	if m == nil || m.record == nil || snap == nil {
+		return func() {}
 	}
 	if interval <= 0 {
 		interval = DefaultQueueInterval
 	}
+	logger := zerolog.Nop()
+	if log != nil {
+		logger = *log
+	}
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		m.recordQueue(ctx, snap)
+		defer wg.Done()
+		m.recordQueue(ctx, snap, logger)
 		t := time.NewTicker(interval)
 		defer t.Stop()
 		for {
@@ -101,23 +130,21 @@ func StartQueueReporter(ctx context.Context, m *Metrics, snap QueueSnapshot, int
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				m.recordQueue(ctx, snap)
+				m.recordQueue(ctx, snap, logger)
 			}
 		}
 	}()
+	return wg.Wait
 }
 
-func (m *Metrics) recordQueue(ctx context.Context, snap QueueSnapshot) {
+func (m *Metrics) recordQueue(ctx context.Context, snap QueueSnapshot, log zerolog.Logger) {
 	c, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	payments, webhooks, err := snap(c)
 	if err != nil {
+		log.Warn().Err(err).Str("component", "queue_reporter").Msg("queue snapshot failed")
 		return
 	}
-	for status, n := range payments {
-		m.emit("Custom/Payments/Status/"+status, float64(n))
-	}
-	for status, n := range webhooks {
-		m.emit("Custom/Webhook/Queue/"+status, float64(n))
-	}
+	m.emit("Custom/Payments/Queue", float64(payments))
+	m.emit("Custom/Webhook/Queue", float64(webhooks))
 }

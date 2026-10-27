@@ -444,35 +444,17 @@ func scanPaymentRecord(row pgx.Row) (*PaymentRecord, error) {
 	return &rec, nil
 }
 
-// StatusCounts returns payment and webhook_delivery row counts keyed by status.
-func (r *PaymentRepository) StatusCounts(ctx context.Context) (payments, webhooks map[string]int64, err error) {
-	payments, err = r.countByStatus(ctx, `SELECT status, COUNT(*) FROM payments GROUP BY status`)
+// QueueDepth is the number of PENDING payments and webhook deliveries.
+func (r *PaymentRepository) QueueDepth(ctx context.Context) (payments, webhooks int64, err error) {
+	err = r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM payments WHERE status = $1`, model.PaymentStatusPending).Scan(&payments)
 	if err != nil {
-		return nil, nil, fmt.Errorf("payment status counts: %w", err)
+		return 0, 0, fmt.Errorf("payment queue depth: %w", err)
 	}
-	webhooks, err = r.countByStatus(ctx, `SELECT status, COUNT(*) FROM webhook_deliveries GROUP BY status`)
+	err = r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM webhook_deliveries WHERE status = $1`, model.WebhookDeliveryStatusPending).Scan(&webhooks)
 	if err != nil {
-		return nil, nil, fmt.Errorf("webhook status counts: %w", err)
+		return 0, 0, fmt.Errorf("webhook queue depth: %w", err)
 	}
 	return payments, webhooks, nil
-}
-
-func (r *PaymentRepository) countByStatus(ctx context.Context, q string) (map[string]int64, error) {
-	rows, err := r.pool.Query(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make(map[string]int64)
-	for rows.Next() {
-		var status string
-		var n int64
-		if err := rows.Scan(&status, &n); err != nil {
-			return nil, err
-		}
-		out[status] = n
-	}
-	return out, rows.Err()
 }
 
 func scanIdempotencyKey(row pgx.Row) (*model.DBIdempotencyKey, error) {

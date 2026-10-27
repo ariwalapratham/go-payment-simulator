@@ -129,7 +129,12 @@ func (p *PaymentProcessor) process(ctx context.Context, job *repository.PaymentR
 		return err
 	}
 
-	p.metrics.ObserveAuthorizeAttempt(res.Outcome.String(), decision.NextStatus.String())
+	p.metrics.ObserveAuthorizeAttempt(
+		res.Outcome.String(),
+		decision.NextStatus.String(),
+		job.MerchantPublicID.String(),
+		job.Payment.PublicID.String(),
+	)
 	if decision.NextStatus == model.PaymentStatusPending {
 		p.metrics.ObserveAuthorizeRetry()
 	}

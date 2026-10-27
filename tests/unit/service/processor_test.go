@@ -101,7 +101,7 @@ type recMetrics struct {
 	toStatus string
 }
 
-func (m *recMetrics) ObserveAuthorizeAttempt(bankOutcome, toStatus string) {
+func (m *recMetrics) ObserveAuthorizeAttempt(bankOutcome, toStatus, _, _ string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.attempts++
