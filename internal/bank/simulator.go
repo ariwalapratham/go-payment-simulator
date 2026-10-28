@@ -12,12 +12,15 @@ import (
 )
 
 // Simulator is a Gateway that draws SUCCESS / DECLINED / TIMEOUT / TEMPORARY_FAILURE.
+// Terminal SUCCESS/DECLINED results are remembered by PaymentPublicID so a client
+// timeout retries the same acquirer decision. TIMEOUT and TEMPORARY_FAILURE are not stored.
 type Simulator struct {
-	cfg  SimulatorConfig
-	seq  []Outcome
-	mu   sync.Mutex
-	rng  *rand.Rand
-	seqI int
+	cfg   SimulatorConfig
+	seq   []Outcome
+	mu    sync.Mutex
+	rng   *rand.Rand
+	seqI  int
+	byRef map[uuid.UUID]AuthorizeResult
 }
 
 // NewSimulator builds a weighted simulator. Safe for concurrent Authorize calls.
@@ -44,22 +47,59 @@ func NewDeterministicSimulator(outcomes ...Outcome) (*Simulator, error) {
 	}, nil
 }
 
-// Authorize implements Gateway. req is used for a stable provider reference on success.
+// SetTimeoutAuthorizes records TIMEOUT draws as SUCCESS, then still returns TIMEOUT
+// to the caller. A retry with the same PaymentPublicID returns that SUCCESS.
+func (s *Simulator) SetTimeoutAuthorizes(v bool) {
+	s.mu.Lock()
+	s.cfg.TimeoutAuthorizes = v
+	s.mu.Unlock()
+}
+
+// Authorize implements Gateway. Terminal outcomes are stored before wait so a
+// cancelled client context does not roll back a settlement the acquirer already made.
 func (s *Simulator) Authorize(ctx context.Context, req AuthorizeRequest) (AuthorizeResult, error) {
 	if err := ctx.Err(); err != nil {
 		return AuthorizeResult{}, err
 	}
-	delay, outcome := s.next()
+	res, delay, hit := s.settle(req.PaymentPublicID)
+	if hit {
+		return res, nil
+	}
 	if err := wait(ctx, delay); err != nil {
 		return AuthorizeResult{}, err
 	}
-	return resultFor(outcome, req.PaymentPublicID), nil
+	return res, nil
 }
 
-func (s *Simulator) next() (time.Duration, Outcome) {
+// settle looks up, draws, and remembers under one lock so the same PaymentPublicID
+// cannot be drawn twice. wait stays outside the lock.
+func (s *Simulator) settle(id uuid.UUID) (res AuthorizeResult, delay time.Duration, hit bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.delayLocked(), s.pickLocked()
+
+	if id != uuid.Nil {
+		if cached, ok := s.byRef[id]; ok {
+			return cached, 0, true
+		}
+	}
+
+	delay = s.delayLocked()
+	outcome := s.pickLocked()
+	settled := outcome
+	if s.cfg.TimeoutAuthorizes && outcome == OutcomeTimeout {
+		settled = OutcomeSuccess
+	}
+	stored := resultFor(settled, id)
+	if id != uuid.Nil && (stored.Outcome == OutcomeSuccess || stored.Outcome == OutcomeDeclined) {
+		if s.byRef == nil {
+			s.byRef = make(map[uuid.UUID]AuthorizeResult)
+		}
+		s.byRef[id] = stored
+	}
+	if settled != outcome {
+		return resultFor(outcome, id), delay, false
+	}
+	return stored, delay, false
 }
 
 func (s *Simulator) pickLocked() Outcome {

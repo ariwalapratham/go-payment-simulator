@@ -21,6 +21,9 @@ func TestDefaultBankConfig(t *testing.T) {
 	if c.CallTimeout < 1 {
 		t.Fatalf("timeout %d", c.CallTimeout)
 	}
+	if c.Simulator.TimeoutAuthorizes {
+		t.Fatal("TimeoutAuthorizes should default off")
+	}
 	sum := c.Simulator.SuccessPct + c.Simulator.DeclinedPct +
 		c.Simulator.TimeoutPct + c.Simulator.FailurePct
 	if sum != 100 {

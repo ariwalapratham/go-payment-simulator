@@ -35,7 +35,7 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - [x] Payment status machine (`model.Transition`)
 - [x] POST/GET `/v1/payments` with DB idempotency + request hash
 - [x] Integration concurrency tests for idempotent create
-- [x] Fake bank port (`bank.Gateway`, simulator, `PAYMENTS_BANK_*` config)
+- [x] Fake bank port (`bank.Gateway`, simulator, `PAYMENTS_BANK_*` config); authorize idempotent on `PaymentPublicID` (commit-before-wait; optional `TimeoutAuthorizes`)
 - [x] Authorize worker pool (DB queue, `SKIP LOCKED` lease, retries/backoff)
 - [x] Authorize worker logs (`worker_id`, `bank_outcome`, transition events) + `AuthorizeMetrics` (New Relic `Custom/Authorize/*`, nop without a license key)
 - [x] POST `/v1/payments/:id/capture` and `/cancel` with `FOR UPDATE` + `model.Transition`

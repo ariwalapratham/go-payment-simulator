@@ -94,9 +94,9 @@ func TestSimulatorDeterministic(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := bank.AuthorizeRequest{PaymentPublicID: uuid.MustParse("22222222-2222-2222-2222-222222222222")}
 	want := []bank.Outcome{bank.OutcomeTimeout, bank.OutcomeDeclined, bank.OutcomeSuccess, bank.OutcomeTimeout}
 	for i, o := range want {
+		req := bank.AuthorizeRequest{PaymentPublicID: uuid.New()}
 		res, err := sim.Authorize(ctx, req)
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
@@ -203,6 +203,126 @@ func TestSimulatorConcurrentAuthorize(t *testing.T) {
 		if aerr := <-errCh; aerr != nil {
 			t.Fatal(aerr)
 		}
+	}
+}
+
+func TestSimulatorDoesNotCacheTimeout(t *testing.T) {
+	t.Parallel()
+
+	sim, err := bank.NewDeterministicSimulator(bank.OutcomeTimeout, bank.OutcomeDeclined)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	req := bank.AuthorizeRequest{PaymentPublicID: uuid.New()}
+
+	first, err := sim.Authorize(ctx, req)
+	if err != nil || first.Outcome != bank.OutcomeTimeout {
+		t.Fatalf("first %+v err=%v", first, err)
+	}
+	second, err := sim.Authorize(ctx, req)
+	if err != nil || second.Outcome != bank.OutcomeDeclined {
+		t.Fatalf("retry %+v err=%v", second, err)
+	}
+}
+
+func TestSimulatorCachesDecline(t *testing.T) {
+	t.Parallel()
+
+	sim, err := bank.NewDeterministicSimulator(bank.OutcomeDeclined, bank.OutcomeSuccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	req := bank.AuthorizeRequest{PaymentPublicID: uuid.New()}
+
+	first, err := sim.Authorize(ctx, req)
+	if err != nil || first.Outcome != bank.OutcomeDeclined {
+		t.Fatalf("first %+v err=%v", first, err)
+	}
+	second, err := sim.Authorize(ctx, req)
+	if err != nil || second.Outcome != bank.OutcomeDeclined {
+		t.Fatalf("retry %+v err=%v", second, err)
+	}
+}
+
+func TestSimulatorTimeoutAuthorizesRetriesOriginalSuccess(t *testing.T) {
+	t.Parallel()
+
+	sim, err := bank.NewDeterministicSimulator(bank.OutcomeTimeout, bank.OutcomeDeclined)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sim.SetTimeoutAuthorizes(true)
+
+	ctx := context.Background()
+	req := bank.AuthorizeRequest{PaymentPublicID: uuid.New()}
+
+	first, err := sim.Authorize(ctx, req)
+	if err != nil || first.Outcome != bank.OutcomeTimeout {
+		t.Fatalf("first %+v err=%v", first, err)
+	}
+	second, err := sim.Authorize(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Outcome != bank.OutcomeSuccess {
+		t.Fatalf("retry got %s want SUCCESS (not DECLINED)", second.Outcome)
+	}
+	if second.ProviderReference != req.PaymentPublicID.String() {
+		t.Fatalf("success ref %q", second.ProviderReference)
+	}
+}
+
+func TestSimulatorSlowSuccessSurvivesClientTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg := mustSimConfig(pctAll, 0, 0, 0)
+	const delayMS = 200
+	cfg.MinDelayMS = delayMS
+	cfg.MaxDelayMS = delayMS
+	sim, err := bank.NewSimulator(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	id := uuid.New()
+	req := bank.AuthorizeRequest{PaymentPublicID: id}
+	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := sim.Authorize(short, req); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("first call: %v", err)
+	}
+
+	res, err := sim.Authorize(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != bank.OutcomeSuccess {
+		t.Fatalf("retry got %s", res.Outcome)
+	}
+	if res.ProviderReference != id.String() {
+		t.Fatalf("success ref %q", res.ProviderReference)
+	}
+}
+
+func TestSimulatorNilIDDoesNotCache(t *testing.T) {
+	t.Parallel()
+
+	sim, err := bank.NewDeterministicSimulator(bank.OutcomeDeclined, bank.OutcomeSuccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	req := bank.AuthorizeRequest{}
+
+	first, err := sim.Authorize(ctx, req)
+	if err != nil || first.Outcome != bank.OutcomeDeclined {
+		t.Fatalf("first %+v err=%v", first, err)
+	}
+	second, err := sim.Authorize(ctx, req)
+	if err != nil || second.Outcome != bank.OutcomeSuccess {
+		t.Fatalf("second %+v err=%v", second, err)
 	}
 }
 

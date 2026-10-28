@@ -6,13 +6,14 @@ const percentTotal = 100
 
 // SimulatorConfig is weighted fake-acquirer outcomes. Percents must sum to 100.
 type SimulatorConfig struct {
-	SuccessPct  int    `koanf:"success_pct"`
-	DeclinedPct int    `koanf:"declined_pct"`
-	TimeoutPct  int    `koanf:"timeout_pct"`
-	FailurePct  int    `koanf:"failure_pct"`
-	MinDelayMS  int    `koanf:"min_delay_ms"`
-	MaxDelayMS  int    `koanf:"max_delay_ms"`
-	Seed        *int64 `koanf:"seed"`
+	SuccessPct        int    `koanf:"success_pct"`
+	DeclinedPct       int    `koanf:"declined_pct"`
+	TimeoutPct        int    `koanf:"timeout_pct"`
+	FailurePct        int    `koanf:"failure_pct"`
+	MinDelayMS        int    `koanf:"min_delay_ms"`
+	MaxDelayMS        int    `koanf:"max_delay_ms"`
+	Seed              *int64 `koanf:"seed"`
+	TimeoutAuthorizes bool   `koanf:"timeout_authorizes"`
 }
 
 // Validate checks weights and delay bounds. Zero config is invalid; apply app defaults first.
