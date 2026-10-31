@@ -16,7 +16,8 @@ import (
 
 // LoggerService manages New Relic integration and logger creation
 type LoggerService struct {
-	nrApp *newrelic.Application
+	nrApp   *newrelic.Application
+	initErr error
 }
 
 // NewLoggerService creates a new logger service with New Relic integration
@@ -42,11 +43,23 @@ func NewLoggerService(cfg *config.ObservabilityConfig) *LoggerService {
 
 	app, err := newrelic.NewApplication(configOptions...)
 	if err != nil {
+		service.initErr = err
 		return service
 	}
 
 	service.nrApp = app
 	return service
+}
+
+// WaitForConnection blocks until the agent connects or the timeout elapses.
+func (ls *LoggerService) WaitForConnection(d time.Duration) error {
+	if ls.nrApp == nil {
+		if ls.initErr != nil {
+			return ls.initErr
+		}
+		return nil
+	}
+	return ls.nrApp.WaitForConnection(d)
 }
 
 // Shutdown shuts down New Relic

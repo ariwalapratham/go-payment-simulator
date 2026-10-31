@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/newrelic/go-agent/v3/integrations/nrgin"
 	"github.com/newrelic/go-agent/v3/integrations/nrpkgerrors"
 	"github.com/newrelic/go-agent/v3/newrelic"
 
@@ -18,13 +17,24 @@ func NewTracingMiddleware(_ *server.Server, nrApp *newrelic.Application) *Tracin
 	return &TracingMiddleware{nrApp: nrApp}
 }
 
-// NewRelicMiddleware returns the New Relic middleware for Gin.
-// When New Relic is not initialized it returns a no-op.
+// NewRelicMiddleware starts a transaction and puts it on the *request* context
+// so pgx/nrpgx5 can create datastore segments. nrgin only stores the txn on
+// gin.Context, which handlers never pass to the pool.
 func (tm *TracingMiddleware) NewRelicMiddleware() gin.HandlerFunc {
 	if tm.nrApp == nil {
 		return func(c *gin.Context) { c.Next() }
 	}
-	return nrgin.Middleware(tm.nrApp)
+	return func(c *gin.Context) {
+		path := c.FullPath()
+		if path == "" {
+			path = c.Request.URL.Path
+		}
+		txn := tm.nrApp.StartTransaction(c.Request.Method + " " + path)
+		defer txn.End()
+		txn.SetWebRequestHTTP(c.Request)
+		c.Request = newrelic.RequestWithTransactionContext(c.Request, txn)
+		c.Next()
+	}
 }
 
 // EnhanceTracing adds request attributes to the New Relic transaction

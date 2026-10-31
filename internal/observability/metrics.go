@@ -39,7 +39,7 @@ func (NopWebhookMetrics) ObserveWebhookDelivered() {}
 func (NopWebhookMetrics) ObserveWebhookRetry()     {}
 func (NopWebhookMetrics) ObserveWebhookFailed()    {}
 
-// Metrics records Custom/* values on a New Relic app. A nil app is a no-op.
+// Metrics records custom metrics on a New Relic app (agent adds the Custom/ prefix). Nil app is a no-op.
 type Metrics struct {
 	record func(string, float64)
 	event  func(string, map[string]interface{})
@@ -64,7 +64,7 @@ func NewRecorderMetrics(record func(string, float64), event func(string, map[str
 }
 
 func (m *Metrics) ObserveAuthorizeAttempt(bankOutcome, toStatus, merchantID, paymentID string) {
-	m.emit("Custom/Authorize/Attempt", 1)
+	m.emit("Authorize/Attempt", 1)
 	m.emitEvent("AuthorizeAttempt", map[string]interface{}{
 		"bank_outcome": bankOutcome,
 		"to_status":    toStatus,
@@ -73,15 +73,15 @@ func (m *Metrics) ObserveAuthorizeAttempt(bankOutcome, toStatus, merchantID, pay
 	})
 }
 
-func (m *Metrics) ObserveAuthorizeRetry() { m.emit("Custom/Authorize/Retry", 1) }
+func (m *Metrics) ObserveAuthorizeRetry() { m.emit("Authorize/Retry", 1) }
 
-func (m *Metrics) ObserveClaimLost() { m.emit("Custom/Authorize/ClaimLost", 1) }
+func (m *Metrics) ObserveClaimLost() { m.emit("Authorize/ClaimLost", 1) }
 
-func (m *Metrics) ObserveWebhookDelivered() { m.emit("Custom/Webhook/Delivered", 1) }
+func (m *Metrics) ObserveWebhookDelivered() { m.emit("Webhook/Delivered", 1) }
 
-func (m *Metrics) ObserveWebhookRetry() { m.emit("Custom/Webhook/Retry", 1) }
+func (m *Metrics) ObserveWebhookRetry() { m.emit("Webhook/Retry", 1) }
 
-func (m *Metrics) ObserveWebhookFailed() { m.emit("Custom/Webhook/Failed", 1) }
+func (m *Metrics) ObserveWebhookFailed() { m.emit("Webhook/Failed", 1) }
 
 func (m *Metrics) emit(name string, value float64) {
 	if m == nil || m.record == nil {
@@ -145,6 +145,6 @@ func (m *Metrics) recordQueue(ctx context.Context, snap QueueSnapshot, log zerol
 		log.Warn().Err(err).Str("component", "queue_reporter").Msg("queue snapshot failed")
 		return
 	}
-	m.emit("Custom/Payments/Queue", float64(payments))
-	m.emit("Custom/Webhook/Queue", float64(webhooks))
+	m.emit("Payments/Queue", float64(payments))
+	m.emit("Webhook/Queue", float64(webhooks))
 }

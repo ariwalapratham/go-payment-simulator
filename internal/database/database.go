@@ -136,5 +136,6 @@ func (db *Database) Ping(ctx context.Context) error {
 	if db == nil || db.Pool == nil {
 		return errors.New("database unreachable")
 	}
-	return db.Pool.Ping(ctx)
+	var n int
+	return db.Pool.QueryRow(ctx, "SELECT 1").Scan(&n)
 }

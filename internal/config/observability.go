@@ -20,7 +20,7 @@ type LoggingConfig struct {
 }
 
 type NewRelicConfig struct {
-	LicenseKey                string `koanf:"license_key" validate:"required"`
+	LicenseKey                string `koanf:"license_key"`
 	AppLogForwardingEnabled   bool   `koanf:"app_log_forwarding_enabled"`
 	DistributedTracingEnabled bool   `koanf:"distributed_tracing_enabled"`
 	DebugLogging              bool   `koanf:"debug_logging"`
@@ -94,4 +94,39 @@ func (c *ObservabilityConfig) GetLogLevel() string {
 
 func (c *ObservabilityConfig) IsProduction() bool {
 	return c.Environment == "production"
+}
+
+// ApplyObservabilityDefaults merges env overrides onto defaults before struct validation.
+func (c *Config) ApplyObservabilityDefaults() {
+	overlay := c.Observability
+	c.Observability = DefaultObservabilityConfig()
+	if overlay == nil {
+		c.Observability.ServiceName = "payment-simulator"
+		c.Observability.Environment = c.Primary.Env
+		return
+	}
+	o := overlay
+	if o.Logging.Level != "" {
+		c.Observability.Logging.Level = o.Logging.Level
+	}
+	if o.Logging.Format != "" {
+		c.Observability.Logging.Format = o.Logging.Format
+	}
+	if o.Logging.SlowQueryThreshold > 0 {
+		c.Observability.Logging.SlowQueryThreshold = o.Logging.SlowQueryThreshold
+	}
+	if o.NewRelic.LicenseKey != "" {
+		c.Observability.NewRelic.LicenseKey = o.NewRelic.LicenseKey
+	}
+	if o.HealthChecks.Interval > 0 {
+		c.Observability.HealthChecks.Interval = o.HealthChecks.Interval
+	}
+	if o.HealthChecks.Timeout > 0 {
+		c.Observability.HealthChecks.Timeout = o.HealthChecks.Timeout
+	}
+	if len(o.HealthChecks.Checks) > 0 {
+		c.Observability.HealthChecks.Checks = o.HealthChecks.Checks
+	}
+	c.Observability.ServiceName = "payment-simulator"
+	c.Observability.Environment = c.Primary.Env
 }

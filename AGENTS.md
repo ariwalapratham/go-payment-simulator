@@ -61,7 +61,7 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - `task migrate:up` (needs migrate CLI + DATABASE_URL)
 - `task test:unit` — `./tests/unit/...`
 - `task test:integration` — `-tags=integration ./tests/integration/...` (Postgres)
-- `task check` — fmt, vet, lint, race tests
+- `task check` — vet + race tests
 
 ## Testing
 - No `*_test.go` under `internal/`; all tests live under `tests/`.

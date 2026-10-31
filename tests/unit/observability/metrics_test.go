@@ -49,12 +49,12 @@ func TestMetricsRecordsCustomNames(t *testing.T) {
 	m.ObserveWebhookFailed()
 
 	want := []string{
-		"Custom/Authorize/Attempt",
-		"Custom/Authorize/Retry",
-		"Custom/Authorize/ClaimLost",
-		"Custom/Webhook/Delivered",
-		"Custom/Webhook/Retry",
-		"Custom/Webhook/Failed",
+		"Authorize/Attempt",
+		"Authorize/Retry",
+		"Authorize/ClaimLost",
+		"Webhook/Delivered",
+		"Webhook/Retry",
+		"Webhook/Failed",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)
@@ -94,8 +94,8 @@ func TestQueueReporterRecordsPendingGauges(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
-		_, pay := got["Custom/Payments/Queue"]
-		_, hook := got["Custom/Webhook/Queue"]
+		_, pay := got["Payments/Queue"]
+		_, hook := got["Webhook/Queue"]
 		mu.Unlock()
 		if pay && hook {
 			break
@@ -107,10 +107,10 @@ func TestQueueReporterRecordsPendingGauges(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if got["Custom/Payments/Queue"] != 2 {
+	if got["Payments/Queue"] != 2 {
 		t.Fatalf("payments: %+v", got)
 	}
-	if got["Custom/Webhook/Queue"] != 1 {
+	if got["Webhook/Queue"] != 1 {
 		t.Fatalf("webhooks: %+v", got)
 	}
 }

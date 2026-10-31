@@ -31,6 +31,16 @@ func main() {
 	loggerService := logger.NewLoggerService(cfg.Observability)
 	defer loggerService.Shutdown()
 	log := logger.NewLoggerWithService(cfg.Observability, loggerService)
+	if cfg.Observability.NewRelic.LicenseKey != "" {
+		const nrConnect = 15 * time.Second
+		if err := loggerService.WaitForConnection(nrConnect); err != nil {
+			log.Warn().Err(err).Msg("new relic agent failed to connect")
+		} else if loggerService.GetApplication() != nil {
+			log.Info().
+				Str("app_name", cfg.Observability.ServiceName).
+				Msg("new relic agent initialized")
+		}
+	}
 
 	ctx := context.Background()
 	if err := database.Migrate(ctx, &log, cfg); err != nil {

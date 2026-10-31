@@ -59,7 +59,7 @@ func LoadConfig() (*Config, error) {
 
 	k := koanf.New(".")
 
-	err := k.Load(env.Provider("PAYMENTS_", ".", envKeyTransform), nil)
+	err := k.Load(env.Provider("PAYMENTS_", ".", EnvKeyTransform), nil)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("could not load initial env variables")
 	}
@@ -71,6 +71,8 @@ func LoadConfig() (*Config, error) {
 		logger.Fatal().Err(err).Msg("could not unmarshal main config")
 	}
 
+	mainConfig.ApplyObservabilityDefaults()
+
 	validate := validator.New()
 
 	err = validate.Struct(mainConfig)
@@ -78,16 +80,6 @@ func LoadConfig() (*Config, error) {
 		logger.Fatal().Err(err).Msg("config validation failed")
 	}
 
-	// Set default observability config if not provided
-	if mainConfig.Observability == nil {
-		mainConfig.Observability = DefaultObservabilityConfig()
-	}
-
-	// Override service name and environment from primary config
-	mainConfig.Observability.ServiceName = "payment-simulator"
-	mainConfig.Observability.Environment = mainConfig.Primary.Env
-
-	// Validate observability config
 	if err := mainConfig.Observability.Validate(); err != nil {
 		logger.Fatal().Err(err).Msg("invalid observability config")
 	}
@@ -118,7 +110,7 @@ func LoadConfig() (*Config, error) {
 	return mainConfig, nil
 }
 
-func envKeyTransform(raw string) string {
+func EnvKeyTransform(raw string) string {
 	key := strings.ToLower(strings.TrimPrefix(raw, "PAYMENTS_"))
 
 	for _, root := range []string{"primary", "server", "database", "admin"} {
@@ -152,15 +144,13 @@ func envKeyTransform(raw string) string {
 		rest := strings.TrimPrefix(key, "observability_")
 		switch {
 		case strings.HasPrefix(rest, "new_relic_"):
-			suffix := strings.TrimPrefix(rest, "new_relic_")
-			return "observability.new_relic." + strings.ReplaceAll(suffix, "_", ".")
+			return "observability.new_relic." + strings.TrimPrefix(rest, "new_relic_")
 		case strings.HasPrefix(rest, "health_checks_"):
-			suffix := strings.TrimPrefix(rest, "health_checks_")
-			return "observability.health_checks." + strings.ReplaceAll(suffix, "_", ".")
+			return "observability.health_checks." + strings.TrimPrefix(rest, "health_checks_")
 		case strings.HasPrefix(rest, "logging_"):
 			return "observability.logging." + strings.TrimPrefix(rest, "logging_")
 		default:
-			return "observability." + strings.ReplaceAll(rest, "_", ".")
+			return "observability." + rest
 		}
 	}
 
