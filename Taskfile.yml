@@ -120,3 +120,101 @@ tasks:
     desc: Remove build and coverage artifacts
     cmds:
       - rm -rf {{.BIN_DIR}} coverage.out
+
+  loadtest:create:
+    desc: Unique-key paced create (default 15 RPS / 1m). Requires API_KEY.
+    vars:
+      RATE: '{{.RATE | default "15"}}'
+      DURATION: '{{.DURATION | default "1m"}}'
+      BASE_URLS: '{{.BASE_URLS | default "http://localhost:8080"}}'
+      BANK_DELAY_MS: '{{.BANK_DELAY_MS | default "200"}}'
+      BANK_MIX: '{{.BANK_MIX | default "pinned 100/0/0/0"}}'
+    cmds:
+      - |
+        if [ -z "{{.API_KEY}}" ]; then echo "API_KEY is required"; exit 1; fi
+        go run ./cmd/loadtest create \
+          --api-key "{{.API_KEY}}" \
+          --base-urls "{{.BASE_URLS}}" \
+          --rate {{.RATE}} \
+          --duration {{.DURATION}} \
+          --database-url "{{.DATABASE_URL}}" \
+          --db-pool 25 \
+          --worker-pool 4 \
+          --bank-delay-ms {{.BANK_DELAY_MS}} \
+          --bank-mix "{{.BANK_MIX}}"
+
+  loadtest:create:two:
+    desc: Unique-key create against two API processes (:8080 and :8081)
+    cmds:
+      - task: loadtest:create
+        vars:
+          API_KEY: '{{.API_KEY}}'
+          RATE: '{{.RATE | default "15"}}'
+          DURATION: '{{.DURATION | default "1m"}}'
+          BASE_URLS: http://localhost:8080,http://localhost:8081
+          BANK_DELAY_MS: '{{.BANK_DELAY_MS | default "200"}}'
+          BANK_MIX: '{{.BANK_MIX | default "pinned 100/0/0/0"}}'
+
+  loadtest:storm:
+    desc: Shared-key paced create (default 15 RPS / 1m). Requires API_KEY.
+    vars:
+      RATE: '{{.RATE | default "15"}}'
+      DURATION: '{{.DURATION | default "1m"}}'
+      STORM_KEYS: '{{.STORM_KEYS | default "20"}}'
+      BANK_DELAY_MS: '{{.BANK_DELAY_MS | default "200"}}'
+      BANK_MIX: '{{.BANK_MIX | default "pinned 100/0/0/0"}}'
+    cmds:
+      - |
+        if [ -z "{{.API_KEY}}" ]; then echo "API_KEY is required"; exit 1; fi
+        go run ./cmd/loadtest storm \
+          --api-key "{{.API_KEY}}" \
+          --base-urls "{{.BASE_URLS | default "http://localhost:8080"}}" \
+          --rate {{.RATE}} \
+          --duration {{.DURATION}} \
+          --storm-keys {{.STORM_KEYS}} \
+          --database-url "{{.DATABASE_URL}}" \
+          --db-pool 25 \
+          --worker-pool 4 \
+          --bank-delay-ms {{.BANK_DELAY_MS}} \
+          --bank-mix "{{.BANK_MIX}}"
+
+  loadtest:refund:
+    desc: Capture then concurrent full-amount refunds. Requires API_KEY.
+    vars:
+      PAYMENTS: '{{.PAYMENTS | default "10"}}'
+      REFUNDS_PER: '{{.REFUNDS_PER | default "8"}}'
+      BANK_DELAY_MS: '{{.BANK_DELAY_MS | default "200"}}'
+      BANK_MIX: '{{.BANK_MIX | default "pinned 100/0/0/0"}}'
+    cmds:
+      - |
+        if [ -z "{{.API_KEY}}" ]; then echo "API_KEY is required"; exit 1; fi
+        go run ./cmd/loadtest refund \
+          --api-key "{{.API_KEY}}" \
+          --base-urls "{{.BASE_URLS | default "http://localhost:8080"}}" \
+          --payments {{.PAYMENTS}} \
+          --refunds-per {{.REFUNDS_PER}} \
+          --database-url "{{.DATABASE_URL}}" \
+          --db-pool 25 \
+          --worker-pool 4 \
+          --bank-delay-ms {{.BANK_DELAY_MS}} \
+          --bank-mix "{{.BANK_MIX}}"
+
+  loadtest:mix:
+    desc: Modest unique-key create against the default 90/5/3/2 bank mix. Requires API_KEY.
+    vars:
+      RATE: '{{.RATE | default "5"}}'
+      DURATION: '{{.DURATION | default "1m"}}'
+    cmds:
+      - |
+        if [ -z "{{.API_KEY}}" ]; then echo "API_KEY is required"; exit 1; fi
+        go run ./cmd/loadtest mix \
+          --api-key "{{.API_KEY}}" \
+          --base-urls "{{.BASE_URLS | default "http://localhost:8080"}}" \
+          --rate {{.RATE}} \
+          --duration {{.DURATION}} \
+          --database-url "{{.DATABASE_URL}}" \
+          --db-pool 25 \
+          --worker-pool 4 \
+          --bank-delay-ms 0 \
+          --bank-mix "default 90/5/3/2" \
+          --max-attempts 5
