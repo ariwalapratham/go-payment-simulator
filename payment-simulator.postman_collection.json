@@ -1,0 +1,507 @@
+{
+	"info": {
+		"_postman_id": "fce70898-2583-4b7f-b78c-4248ce284369",
+		"name": "payment-simulator",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "26162618"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/v1/health",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"health"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "DB health check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/readyz",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"readyz"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create Merchant",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "X-Admin-Key",
+						"value": "{{adminKey}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"test merchant\",\n    \"webhook_url\": \"https://webhook.site/da6ed088-78b9-4090-9d9f-66f1e10ac003\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/v1/admin/merchants",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"admin",
+						"merchants"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Merchants",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "X-Admin-Key",
+						"value": "{{adminKey}}"
+					}
+				],
+				"url": {
+					"raw": "{{baseUrl}}/v1/admin/merchants",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"admin",
+						"merchants"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Update merchant",
+			"request": {
+				"method": "PATCH",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "X-Admin-Key",
+						"value": "{{adminKey}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"Acme Corporation\",\n    \"webhook_url\": \"https://webhook.site/another-id\"\n  }",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/v1/admin/merchants/{{merchantUuid}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"admin",
+						"merchants",
+						"{{merchantUuid}}"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Verify Merchant",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "X-Api-Key",
+						"value": "{{apiKey}}"
+					}
+				],
+				"url": {
+					"raw": "{{localhost}}/v1/merchant/me",
+					"host": [
+						"{{localhost}}"
+					],
+					"path": [
+						"v1",
+						"merchant",
+						"me"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Self Update Merchant",
+			"request": {
+				"method": "PATCH",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "X-Api-Key",
+						"value": "{{apiKey}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"webhook_url\": \"https://example.com/webhooks\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/v1/merchant/me",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"merchant",
+						"me"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get merchant by id",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "X-Admin-Key",
+						"value": "{{adminKey}}"
+					}
+				],
+				"url": {
+					"raw": "{{baseUrl}}/v1/admin/merchants/{{merchantUuid}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"admin",
+						"merchants",
+						"{{merchantUuid}}"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Rotate merchant key",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-Admin-Key",
+						"value": "{{adminKey}}"
+					}
+				],
+				"url": {
+					"raw": "{{baseUrl}}/v1/admin/merchants/{{merchantUuid}}/rotate-key",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"admin",
+						"merchants",
+						"{{merchantUuid}}",
+						"rotate-key"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create Payment",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "X-Api-Key",
+						"value": "{{apiKey}}"
+					},
+					{
+						"key": "Idempotency-Key",
+						"value": "manual-create-007"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"amount\": 50,\n    \"currency\": \"USD\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/v1/payments",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"payments"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Payment by Id",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "X-Api-Key",
+						"value": "{{apiKey}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/v1/payments/{{paymentUuid}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"payments",
+						"{{paymentUuid}}"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Capture",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-Api-Key",
+						"value": "{{apiKey}}"
+					}
+				],
+				"url": {
+					"raw": "{{baseUrl}}/v1/payments/{{paymentUuid}}/capture",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"payments",
+						"{{paymentUuid}}",
+						"capture"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Cancel Payment",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-Api-key",
+						"value": "{{apiKey}}"
+					}
+				],
+				"url": {
+					"raw": "{{baseUrl}}/v1/payments/{{paymentUuid}}/cancel",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"payments",
+						"{{paymentUuid}}",
+						"cancel"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Refund Payment",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "X-Api-Key",
+						"value": "{{apiKey}}"
+					},
+					{
+						"key": "Idempotency-Key",
+						"value": "manual-refund-002"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"amount\": 30\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/v1/payments/{{paymentUuid}}/refund",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"v1",
+						"payments",
+						"{{paymentUuid}}",
+						"refund"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Refund by Id",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "X-Merchant-Id",
+						"value": " 11111111-1111-1111-1111-111111111111",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:8080/v1/refunds/REFUND_ID",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"v1",
+						"refunds",
+						"REFUND_ID"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"requests": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"requests": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "adminKey",
+			"value": ""
+		},
+		{
+			"key": "baseUrl",
+			"value": ""
+		},
+		{
+			"key": "apiKey",
+			"value": ""
+		},
+		{
+			"key": "paymentUuid",
+			"value": ""
+		},
+		{
+			"key": "refundUuid",
+			"value": "",
+			"type": "default"
+		},
+		{
+			"key": "merchantUuid",
+			"value": "",
+			"type": "default"
+		}
+	]
+}

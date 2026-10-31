@@ -2,35 +2,32 @@
 
 Payment gateway simulator (Go/Postgres): idempotency, async authorize, capture/refund, webhooks. No real money.
 
-## Prerequisites
+## Quick start (Docker only)
 
-- Docker (full stack)
-- Go 1.27+ and [Task](https://taskfile.dev) (local development only)
-
-## Run with Docker
+For reviewers and anyone without Go installed: both Postgres and the API run in containers.
 
 ```bash
 cp .env.example .env
-task up
+docker compose -f deployments/docker-compose.yaml up --build
 ```
 
-API on `:8080`, Postgres on host `:5434`. Migrations run on API startup.
+API: `http://localhost:8080` · Postgres (optional host access): `localhost:5434` · Migrations run when the API starts.
 
 ```bash
 curl localhost:8080/healthz
 curl localhost:8080/readyz
 ```
 
-Stop: `task down`
+Stop: `Ctrl+C`, or `docker compose -f deployments/docker-compose.yaml down`
 
-## Develop on the host
+## Local development (Go on your machine)
 
-Postgres in Compose, API with `go run`:
+If you are changing Go code: run **only Postgres** in Docker and start the API on the host with `go run` (hot reload via your editor). Same `.env`, but the app connects to Postgres on `localhost:5434`.
 
 ```bash
 cp .env.example .env
 docker compose -f deployments/docker-compose.yaml up postgres -d
-task run
+go run ./cmd/api
 ```
 
-Use `PAYMENTS_DATABASE_PORT=5434` in `.env` (default in `.env.example`).
+Optional: [Task](https://taskfile.dev) wraps the same flows — `task up` / `task down` (full stack), `task run` (API on host).
