@@ -1,29 +1,36 @@
 # go-payment-simulator
 
-A Go payment gateway simulator for concurrent idempotency, state transitions, async processing, and webhook delivery. No real money movement.
+Payment gateway simulator (Go/Postgres): idempotency, async authorize, capture/refund, webhooks. No real money.
 
 ## Prerequisites
 
-- Go 1.27+
-- [Task](https://taskfile.dev)
-- Docker
+- Docker (full stack)
+- Go 1.27+ and [Task](https://taskfile.dev) (local development only)
 
-## Run locally
+## Run with Docker
 
 ```bash
 cp .env.example .env
 task up
+```
+
+API on `:8080`, Postgres on host `:5434`. Migrations run on API startup.
+
+```bash
+curl localhost:8080/healthz
+curl localhost:8080/readyz
+```
+
+Stop: `task down`
+
+## Develop on the host
+
+Postgres in Compose, API with `go run`:
+
+```bash
+cp .env.example .env
+docker compose -f deployments/docker-compose.yaml up postgres -d
 task run
 ```
 
-Postgres runs in Compose (host port `5434`). The API runs on the host (`:8080`). Set `PAYMENTS_DATABASE_PORT=5434` in `.env`.
-
-```bash
-curl localhost:8080/v1/health
-```
-
-Optional: apply migrations with the CLI instead of startup (`migrate` must be installed):
-
-```bash
-task migrate:up
-```
+Use `PAYMENTS_DATABASE_PORT=5434` in `.env` (default in `.env.example`).

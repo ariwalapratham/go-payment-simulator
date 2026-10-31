@@ -57,7 +57,7 @@ Payment gateway simulator (Go/Gin/Postgres). See `docs/ARD-payment-simulator.md`
 - (none)
 
 ## Commands
-- `task up` / `task down`
+- `task up` / `task down` — Compose: Postgres + API (`:8080`); host dev: `compose up postgres -d` + `task run`
 - `task migrate:up` (needs migrate CLI + DATABASE_URL)
 - `task test:unit` — `./tests/unit/...`
 - `task test:integration` — `-tags=integration ./tests/integration/...` (Postgres)

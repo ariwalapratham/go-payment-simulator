@@ -15,5 +15,20 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - ../.env
+    environment:
+      PAYMENTS_DATABASE_HOST: postgres
+      PAYMENTS_DATABASE_PORT: "5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:

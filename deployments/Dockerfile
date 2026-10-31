@@ -1,4 +1,4 @@
-# Local API runs on the host; this image is for later containerized deploys.
+# Default image for Compose `api` service; host dev uses `task run`.
 FROM golang:1.27-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
