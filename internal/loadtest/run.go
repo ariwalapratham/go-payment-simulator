@@ -99,6 +99,9 @@ func drainAndCheck(
 	since, attackEnd time.Time,
 	cfg RunConfig,
 ) error {
+	if cfg.Scenario == refundScenario {
+		return fillSQL(ctx, store, rep, since, cfg)
+	}
 	drainCtx, cancel := context.WithTimeout(ctx, cfg.drainTimeoutFor(rep.PendingAtEnd))
 	defer cancel()
 	if err := store.WaitDrain(drainCtx, since, cfg.Mix); err != nil {
@@ -237,11 +240,13 @@ func runRefund(ctx context.Context, store *Store, cfg RunConfig) ([]RefundCall, 
 }
 
 func fillSQL(ctx context.Context, store *Store, rep *Report, since time.Time, cfg RunConfig) error {
-	lat, err := store.AuthorizeLatency(ctx, since)
-	if err != nil {
-		return err
+	if cfg.Scenario != refundScenario {
+		lat, err := store.AuthorizeLatency(ctx, since)
+		if err != nil {
+			return err
+		}
+		rep.AuthLatency = lat
 	}
-	rep.AuthLatency = lat
 	counts, err := store.StatusCounts(ctx, since)
 	if err != nil {
 		return err

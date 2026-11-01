@@ -138,6 +138,11 @@ FOR UPDATE OF p`
 		return nil, fmt.Errorf("lock payment for refund: %w", err)
 	}
 	if pay.Payment.Status != model.PaymentStatusCaptured {
+		// Remaining is already 0. Concurrent unique-key full refunds lose
+		// the lock after this flip; return over-refund, not REFUNDED -> REFUNDED.
+		if pay.Payment.Status == model.PaymentStatusRefunded {
+			return nil, ErrRefundExceedsBalance
+		}
 		return nil, fmt.Errorf("%w: %s -> %s", model.ErrInvalidTransition, pay.Payment.Status, model.PaymentStatusRefunded)
 	}
 

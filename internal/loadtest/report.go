@@ -49,11 +49,13 @@ func (r Report) Write(w io.Writer) error {
 			return err
 		}
 	}
-	if err := writeWorker(w, r); err != nil {
-		return err
-	}
-	if err := writeLatency(w, r.AuthLatency); err != nil {
-		return err
+	if r.Attack != nil {
+		if err := writeWorker(w, r); err != nil {
+			return err
+		}
+		if err := writeLatency(w, r.AuthLatency); err != nil {
+			return err
+		}
 	}
 	if err := writeCounts(w, r.StatusCounts); err != nil {
 		return err

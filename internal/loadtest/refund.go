@@ -162,7 +162,7 @@ func refundPayments(ctx context.Context, api *Client, ids []uuid.UUID, per, limi
 }
 
 // ValidateRefundCalls checks shared-key calls share one refund id and unique-key
-// calls produce one 201 and the rest 422.
+// calls produce one 201 and the rest 422 (exceeds balance) or 409 (already REFUNDED).
 func ValidateRefundCalls(calls []RefundCall) error {
 	type agg struct {
 		shared    bool
@@ -214,13 +214,13 @@ func checkShared(paymentID uuid.UUID, statuses []int, ids []uuid.UUID) error {
 }
 
 func checkUnique(paymentID uuid.UUID, statuses []int) error {
-	created, conflict := 0, 0
+	created, rejected := 0, 0
 	for _, s := range statuses {
 		switch s {
 		case http.StatusCreated:
 			created++
-		case http.StatusUnprocessableEntity:
-			conflict++
+		case http.StatusUnprocessableEntity, http.StatusConflict:
+			rejected++
 		default:
 			return fmt.Errorf("payment %s unique-key refund status %d", paymentID, s)
 		}
@@ -228,8 +228,8 @@ func checkUnique(paymentID uuid.UUID, statuses []int) error {
 	if created != 1 {
 		return fmt.Errorf("payment %s unique-key refunds: want 1 created, got %d", paymentID, created)
 	}
-	if conflict != len(statuses)-1 {
-		return fmt.Errorf("payment %s unique-key refunds: want %d conflicts, got %d", paymentID, len(statuses)-1, conflict)
+	if rejected != len(statuses)-1 {
+		return fmt.Errorf("payment %s unique-key refunds: want %d rejected, got %d", paymentID, len(statuses)-1, rejected)
 	}
 	return nil
 }

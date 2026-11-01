@@ -33,6 +33,21 @@ func TestValidateRefundCallsSharedAndUnique(t *testing.T) {
 	}
 }
 
+func TestValidateRefundCallsUniqueAccepts409AfterFullRefund(t *testing.T) {
+	t.Parallel()
+
+	pay := uuid.New()
+	calls := []loadtest.RefundCall{
+		{PaymentID: pay, SharedKey: false, Status: http.StatusCreated, RefundID: uuid.New()},
+		{PaymentID: pay, SharedKey: false, Status: http.StatusUnprocessableEntity},
+		{PaymentID: pay, SharedKey: false, Status: http.StatusConflict},
+		{PaymentID: pay, SharedKey: false, Status: http.StatusConflict},
+	}
+	if err := loadtest.ValidateRefundCalls(calls); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestValidateRefundCallsRejectsMixedSharedIDs(t *testing.T) {
 	t.Parallel()
 

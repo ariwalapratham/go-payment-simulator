@@ -1,0 +1,16 @@
+=== loadtest mix ===
+machine: linux/amd64 cpus=12 mem=15.3GiB
+api_processes=1 db_pool=25 worker_pool=4 bank_delay_ms=0 bank_mix=default 90/5/3/2
+
+create_api:
+  requests=300 rate=5.0/s success=1.000
+  status: 201=300
+  latency: p50=8ms p95=12ms p99=13ms
+
+worker:
+  pending_at_attack_end=1 drain=411ms completions=2 rate=4.9/s
+
+authorize_latency (AUTHORIZED updated_at-created_at):
+  n=300 p50=287ms p95=398ms p99=405ms
+payments by status: AUTHORIZED=300
+checks: ok

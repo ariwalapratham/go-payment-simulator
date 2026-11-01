@@ -1,0 +1,7 @@
+=== loadtest refund ===
+machine: linux/amd64 cpus=12 mem=15.3GiB
+api_processes=1 db_pool=25 worker_pool=4 bank_delay_ms=200 bank_mix=pinned 100/0/0/0
+
+refund_calls=80
+payments by status: REFUNDED=10
+checks: ok

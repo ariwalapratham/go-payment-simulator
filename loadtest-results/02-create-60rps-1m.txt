@@ -1,0 +1,16 @@
+=== loadtest create ===
+machine: linux/amd64 cpus=12 mem=15.3GiB
+api_processes=1 db_pool=25 worker_pool=4 bank_delay_ms=200 bank_mix=pinned 100/0/0/0
+
+create_api:
+  requests=3600 rate=60.0/s success=1.000
+  status: 201=3600
+  latency: p50=6ms p95=8ms p99=9ms
+
+worker:
+  pending_at_attack_end=2428 drain=2m5.948s completions=2428 rate=19.3/s
+
+authorize_latency (AUTHORIZED updated_at-created_at):
+  n=3596 p50=1m2.66s p95=1m59.606s p99=2m4.714s
+payments by status: AUTHORIZED=3596 PENDING=4
+checks: ok

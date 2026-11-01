@@ -44,3 +44,26 @@ func TestReportTwoProcessPoolLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestReportRefundOmitsWorkerAndLatency(t *testing.T) {
+	t.Parallel()
+
+	var b strings.Builder
+	rep := loadtest.Report{
+		Scenario:     "refund",
+		RefundCalls:  80,
+		StatusCounts: map[string]int{"REFUNDED": 10},
+	}
+	if err := rep.Write(&b); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	if !strings.Contains(out, "refund_calls=80") {
+		t.Fatalf("missing refund_calls in\n%s", out)
+	}
+	for _, skip := range []string{"worker:", "authorize_latency"} {
+		if strings.Contains(out, skip) {
+			t.Fatalf("refund report should omit %q:\n%s", skip, out)
+		}
+	}
+}

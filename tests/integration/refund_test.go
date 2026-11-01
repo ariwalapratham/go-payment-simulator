@@ -51,11 +51,11 @@ func TestRefundPartialThenFullThenReject(t *testing.T) {
 	}
 
 	third := postRefund(t, r, seedAPIKey(), id, randomKey(), refundJSON(1))
-	if third.Code != http.StatusConflict {
+	if third.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("third: %d %s", third.Code, third.Body.String())
 	}
 	code, _ := errorCode(t, third)
-	if code != "invalid_state_transition" {
+	if code != "refund_exceeds_balance" {
 		t.Fatalf("code: %s", code)
 	}
 }
