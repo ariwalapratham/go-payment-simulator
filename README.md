@@ -51,7 +51,7 @@ stateDiagram-v2
 
 **bigint inside, UUID outside.** Tables use `bigint` PKs; the API exposes `public_id` UUIDs. List cursors are opaque base64 of the internal id.
 
-**Authorize is async.** `POST /v1/payments` inserts `PENDING` and returns. Workers call `bank.Gateway` (in-process simulator). The simulator commits the outcome before sleeping so retries stay idempotent on `PaymentPublicID`. Default mix is 90/5/3/2 success/decline/timeout/failure.
+**Authorize is async.** `POST /v1/payments` inserts `PENDING` and returns. Workers call `bank.Gateway` (in-process simulator). The simulator commits the outcome before sleeping so retries stay idempotent on `PaymentPublicID`. Default mix is 90/5/3/2 success/decline/timeout/failure. 
 
 **Idempotency** is unique on `(merchant_id, scope, key)` plus a request hash. Same key + body replays `200`; same key + different body is `422`.
 
@@ -99,5 +99,5 @@ Unit tests live under `tests/unit/`. Integration tests are `//go:build integrati
 
 - **No ledger.** Balance is payment amount minus sum of `SUCCEEDED` refunds.
 - **Webhook order is not guaranteed per payment.** Workers lease globally by `next_attempt_at`; a retry can deliver a later event first. Redelivery keeps the same `X-Webhook-Event-Id`.
-- **`webhook_secret` is stored in plaintext** (`merchants.webhook_secret`). API keys are stored as hashes only.
+- `webhook_secret` **is stored in plaintext** (`merchants.webhook_secret`). API keys are stored as hashes only.
 - **Capture and refund do not call the bank.** Only the authorize worker uses `bank.Gateway`. Capture/cancel/refund are local state + outbox.
