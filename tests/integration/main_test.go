@@ -31,29 +31,38 @@ func runTests(m *testing.M) int {
 	log := zerolog.Nop()
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "integration tests skipped: load config: %v\n", err)
-		return 0
+		return skipOrFail(m, false, "load config: %v", err)
 	}
 
 	ctx := context.Background()
 	if err := database.Migrate(ctx, &log, cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "integration tests skipped: %v\n", err)
-		return m.Run()
+		return skipOrFail(m, true, "%v", err)
 	}
 
 	pool, err := pgxpool.New(ctx, database.DSN(cfg))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "integration tests skipped: %v\n", err)
-		return m.Run()
+		return skipOrFail(m, true, "%v", err)
 	}
 	defer pool.Close()
 
 	if err := pool.Ping(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "integration tests skipped: %v\n", err)
-		return m.Run()
+		return skipOrFail(m, true, "%v", err)
 	}
 
 	testCfg = cfg
 	testPool = pool
 	return m.Run()
+}
+
+// skipOrFail skips locally when Postgres is missing. On CI it fails so the
+// badge cannot go green with every test skipped.
+func skipOrFail(m *testing.M, runAnyway bool, format string, args ...any) int {
+	fmt.Fprintf(os.Stderr, "integration tests skipped: "+format+"\n", args...)
+	if os.Getenv("CI") != "" {
+		return 1
+	}
+	if runAnyway {
+		return m.Run()
+	}
+	return 0
 }

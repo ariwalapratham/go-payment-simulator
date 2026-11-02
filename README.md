@@ -1,5 +1,7 @@
 # go-payment-simulator
 
+[![CI](https://github.com/ariwalapratham/go-payment-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/ariwalapratham/go-payment-simulator/actions/workflows/ci.yml)
+
 Go/Gin/Postgres payment gateway simulator: idempotent create, async authorize, capture/cancel/refund, HMAC webhooks. No real money.
 
 ## Run
@@ -59,12 +61,12 @@ stateDiagram-v2
 
 Laptop run: linux/amd64, 12 CPUs, 15.3 GiB. One API process, `db_pool=25`, `worker_pool=4`, pinned bank **100% success / 200ms**. Merchant had **no** `webhook_url`.
 
-| Scenario | Load | HTTP p95 | Auth p95 (`updated_at − created_at`) | Pending @ end | Drain | Notes |
-|----------|------|----------|--------------------------------------|---------------|-------|--------|
-| create (below capacity) | 15 RPS × 2m | 9ms | 398ms | 1 | 206ms | 1800 × `201`, worker ~14.5/s |
-| create (overload) | 60 RPS × 1m | 8ms | **2m 0s** | **2428** | **2m 6s** | 3600 × `201`, worker **19.3/s** (~4 × 5 auths/s) |
-| storm | 15 RPS × 2m, 20 keys | 8ms | 365ms (n=20) | 0 | 6ms | `201=20` `200=1780` |
-| refund | 10 payments × 8 concurrent | — | — | — | — | 80 calls, 10 `REFUNDED`, checks ok |
+| Run | Rate | Duration | HTTP p95 | Authorize p95 | Queue | Drain |
+|-----|------|----------|----------|---------------|-------|-------|
+| Unique-key create | 15/s | 2m | 9ms | 398ms | 1 | 206ms |
+| Unique-key create | 60/s | 1m | 8ms | 2m 0s | 2428 | 2m 6s |
+| Shared-key create (20 keys) | 15/s | 2m | 8ms | 365ms | 0 | 6ms |
+| Capture + refund (10 × 8) | — | — | — | — | — | — |
 
 Create HTTP stays ~6–9ms in both create runs. Overload latency is **queue wait**, not Gin. Workers cap at ~20/s with a 200ms bank.
 
